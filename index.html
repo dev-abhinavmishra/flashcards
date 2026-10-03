@@ -42,9 +42,13 @@
     <div class="sidebar-head">
       <h2>Library</h2>
       <span class="section-label" id="library-count"></span>
+      <button class="icon-btn head-clear" id="clear-lib-btn" title="Clear all decks" aria-label="Clear all decks">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m3 0l-.8 12a2 2 0 01-2 1.9H8.8a2 2 0 01-2-1.9L6 7m4 4v6m4-6v6"/></svg>
+      </button>
     </div>
     <input class="search-input library-search" id="library-search" placeholder="filter decks…" aria-label="Filter decks">
     <nav class="deck-list" id="deck-list" aria-label="Your decks"></nav>
+    <div class="menu row-menu" id="row-menu" hidden></div>
     <div class="sidebar-foot">
       <button class="btn primary block" id="new-deck-btn">New deck</button>
       <div class="foot-row">
@@ -62,18 +66,23 @@
       <div class="empty-state">
         <p class="big">A card file that fits in a link.</p>
         <p class="sub">Type terms and answers, study them four ways, and share the whole deck as a single URL — no accounts, no server. Everything is kept in this browser.</p>
+        <ol class="welcome-steps">
+          <li><b>01</b><span>Type or paste cards — <code>term : answer</code>, one per line. Tabs, commas and semicolons work too.</span></li>
+          <li><b>02</b><span>Study them four ways — flip through them in <b class="em">Review</b>, grade yourself in <b class="em">Learn</b>, take a <b class="em">Quiz</b>, or <b class="em">Write</b> the answers.</span></li>
+          <li><b>03</b><span>Share any deck as a link, or back the whole library up as a .json from the sidebar.</span></li>
+        </ol>
         <div class="empty-grid">
           <button class="empty-card" id="empty-new">
             <span class="t">Start a deck</span>
             <span class="d">Paste or type cards — one per line, like <code>term : answer</code></span>
           </button>
-          <button class="empty-card" id="empty-sample">
-            <span class="t">Try a sample</span>
-            <span class="d">Open the world-capitals deck and click through the modes</span>
-          </button>
           <button class="empty-card" id="empty-import">
             <span class="t">Import a file</span>
-            <span class="d">Bring in a JSON, CSV, or TSV export from anywhere</span>
+            <span class="d">Bring in a JSON, CSV, or TSV export — or a whole-library backup</span>
+          </button>
+          <button class="empty-card" id="empty-keys">
+            <span class="t">Keyboard-first</span>
+            <span class="d">Flip, grade, and navigate without the mouse — see the shortcuts</span>
           </button>
         </div>
       </div>

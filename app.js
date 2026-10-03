@@ -310,22 +310,78 @@ function renderLibrary() {
     .sort((a, b) =>
       (state.decks[b].lastStudiedAt || state.decks[b].createdAt) - (state.decks[a].lastStudiedAt || state.decks[a].createdAt));
   els.libraryCount.textContent = ids.length ? `${ids.length} deck${ids.length === 1 ? '' : 's'}` : '';
-  if (!ids.length && q) {
-    els.deckList.innerHTML = `<div class="deck-row" style="cursor:default"><span class="dr-meta">no decks match</span></div>`;
+  const clb = $('clear-lib-btn'); if (clb) clb.disabled = !Object.keys(state.decks).length;
+  if (!ids.length) {
+    els.deckList.innerHTML = q
+      ? `<div class="deck-hint">no decks match “${esc(state.libSearch)}”</div>`
+      : `<div class="deck-hint">no decks yet —<br>“New deck” starts one,<br>“Import…” brings cards in</div>`;
     return;
   }
   els.deckList.innerHTML = ids.map(id => {
     const d = state.decks[id];
     const s = deckStats(d);
     return `
-      <button class="deck-row ${id === state.currentId ? 'active' : ''}" data-deck="${id}">
-        <span class="dr-title">${esc(d.title)}</span>
-        <span class="dr-meta"><span>${s.total} card${s.total === 1 ? '' : 's'}${s.starred ? ` · ${s.starred}★` : ''}</span><span>${relTime(d.lastStudiedAt)}</span></span>
-        <span class="dr-bar"><i style="width:${s.total ? (s.mastered / s.total * 100) : 0}%"></i></span>
-      </button>`;
+      <div class="deck-row ${id === state.currentId ? 'active' : ''}" data-deck="${id}">
+        <button class="dr-main">
+          <span class="dr-title">${esc(d.title)}</span>
+          <span class="dr-meta"><span>${s.total} card${s.total === 1 ? '' : 's'}${s.starred ? ` · ${s.starred}★` : ''}</span><span>${relTime(d.lastStudiedAt)}</span></span>
+          <span class="dr-bar"><i style="width:${s.total ? (s.mastered / s.total * 100) : 0}%"></i></span>
+        </button>
+        <button class="dr-kebab" data-kebab="${id}" title="Deck actions" aria-label="Actions for ${esc(d.title)}">⋮</button>
+      </div>`;
   }).join('');
-  els.deckList.querySelectorAll('.deck-row').forEach(btn =>
-    btn.addEventListener('click', () => selectDeck(btn.dataset.deck)));
+  els.deckList.querySelectorAll('.dr-main').forEach(btn =>
+    btn.addEventListener('click', () => selectDeck(btn.closest('.deck-row').dataset.deck)));
+  els.deckList.querySelectorAll('.dr-kebab').forEach(btn =>
+    btn.addEventListener('click', e => { e.stopPropagation(); openRowMenu(btn.dataset.kebab, btn); }));
+}
+
+let rowMenuFor = null;
+function openRowMenu(id, anchor) {
+  const menu = $('row-menu');
+  if (!menu.hidden && rowMenuFor === id) { menu.hidden = true; rowMenuFor = null; return; }
+  const d = state.decks[id]; if (!d) return;
+  rowMenuFor = id;
+  menu.innerHTML = `
+    <button data-act="rename">Rename…</button>
+    <button data-act="dup">Duplicate</button>
+    <button data-act="export">Export .json</button>
+    <hr>
+    <button class="danger" data-act="del">Delete…</button>`;
+  menu.hidden = false;
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = `${Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8)}px`;
+  menu.style.top = `${Math.min(r.bottom + 3, innerHeight - menu.offsetHeight - 8)}px`;
+  menu.querySelectorAll('button[data-act]').forEach(b =>
+    b.addEventListener('click', () => { menu.hidden = true; rowMenuAction(id, b.dataset.act); }));
+}
+
+function rowMenuAction(id, act) {
+  const d = state.decks[id]; if (!d) return;
+  rowMenuFor = null;
+  if (act === 'rename') {
+    promptModal('Rename deck', 'Deck title', d.title, v => {
+      d.title = v; saveStore();
+      if (id === state.currentId) renderAll(); else renderLibrary();
+    });
+  } else if (act === 'dup') {
+    createDeck(`${d.title} (copy)`, d.cards.map(c => newCard(c.q, c.a, c.ex)));
+    saveStore(); renderLibrary();
+    toast('Deck duplicated');
+  } else if (act === 'export') {
+    exportJson(d);
+  } else if (act === 'del') {
+    confirmModal('Delete this deck?', `“${esc(d.title)}” and its ${d.cards.length} cards will be removed from this browser. Anyone with the share link keeps their copy.`, 'Delete deck', () => {
+      delete state.decks[id];
+      saveStore();
+      if (id === state.currentId) {
+        const remaining = Object.keys(state.decks)[0];
+        if (remaining) selectDeck(remaining);
+        else { state.currentId = null; localStorage.removeItem(LAST_KEY); renderAll(); }
+      } else renderLibrary();
+      toast('Deck deleted');
+    });
+  }
 }
 
 /* ---------------- selection & study set ---------------- */
@@ -608,9 +664,11 @@ function renderQuiz() {
   const opts = [right, ...pool.slice(0, 3)];
   shuffleInPlace(opts);
 
+  const qw = $('quiz-wrap');
+  qw.classList.remove('deal'); void qw.offsetWidth; qw.classList.add('deal');
   const list = $('quiz-list');
   list.innerHTML = opts.map((o, i) => `
-    <button class="quiz-opt" data-ans="${esc(o)}">
+    <button class="quiz-opt" style="--i:${i}" data-ans="${esc(o)}">
       <span class="opt-key">${i + 1}</span><span>${esc(o)}</span>
     </button>`).join('');
   list.querySelectorAll('.quiz-opt').forEach(b =>
@@ -718,6 +776,8 @@ function renderWrite() {
   input.disabled = false;
   $('write-check').textContent = 'Check';
   if (W.checked) restoreWriteChecked();  // restore state after re-render
+  const ww = $('write-wrap');
+  ww.classList.remove('deal'); void ww.offsetWidth; ww.classList.add('deal');
   setTimeout(() => { if (!W.checked) input.focus(); }, 30);
 }
 
@@ -1129,6 +1189,28 @@ function exportLibrary() {
   closeModal();
 }
 
+function openClearLibrary() {
+  const n = Object.keys(state.decks).length;
+  if (!n) { toast('The library is already empty'); return; }
+  openModal(`
+    <h3>Clear the library?</h3>
+    <p class="modal-sub">${n === 1 ? 'The deck in this library' : `All ${n} decks in this library`} will be removed from this browser. Decks you've already sent as links keep working for whoever has them.</p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="cl-backup">Backup first</button>
+      <button class="btn ghost" data-close>Cancel</button>
+      <button class="btn danger" id="cl-ok">Clear all</button>
+    </div>`);
+  $('cl-backup').addEventListener('click', exportLibrary);  // downloads + closes the dialog
+  $('cl-ok').addEventListener('click', () => {
+    state.decks = {};
+    state.currentId = null;
+    try { localStorage.removeItem(LAST_KEY); } catch {}
+    saveStore(); resetSessions(); renderAll();
+    closeModal();
+    toast('Library cleared');
+  });
+}
+
 function importLibrary(obj) {
   const rows = obj.decks;
   let added = 0, skipped = 0;
@@ -1197,8 +1279,8 @@ function openBackupModal() {
   });
 }
 
-function exportJson() {
-  const d = deck(); if (!d) return;
+function exportJson(d = deck()) {
+  if (!d) return;
   download(`cardfile_${d.title.replace(/[^\w]+/g, '_')}.json`,
     JSON.stringify({ title: d.title, version: '3.0', cards: d.cards.map(c => ({ q: c.q, a: c.a, note: c.ex })) }, null, 2),
     'application/json');
@@ -1233,29 +1315,6 @@ function printDeck() {
   window.print();
 }
 
-/* ---------------- sample deck ---------------- */
-
-const SAMPLE = [
-  ['Paris', 'capital of France', 'on the Seine'],
-  ['Tokyo', 'capital of Japan', 'largest metro area on earth'],
-  ['Ottawa', 'capital of Canada', 'not Toronto'],
-  ['Canberra', 'capital of Australia', 'chosen over Sydney and Melbourne'],
-  ['Brasília', 'capital of Brazil', 'purpose-built in 1960'],
-  ['Pretoria', 'executive capital of South Africa', 'it has three capitals'],
-  ['Bern', 'de facto capital of Switzerland', 'the “federal city”'],
-  ['Ankara', 'capital of Türkiye', 'not Istanbul'],
-  ['Wellington', 'capital of New Zealand', 'southernmost capital city'],
-  ['Nairobi', 'capital of Kenya', 'from the Maasai “cool water”'],
-  ['Reykjavík', 'capital of Iceland', 'world’s northernmost capital'],
-  ['Hanoi', 'capital of Vietnam', 'over a thousand years old'],
-];
-
-function seedSample() {
-  const d = createDeck('World capitals', SAMPLE.map(([q, a, ex]) => newCard(q, a, ex)));
-  saveStore();
-  return d.id;
-}
-
 /* ---------------- theme / fullscreen / menu ---------------- */
 
 function applyTheme(dark) {
@@ -1265,7 +1324,7 @@ function applyTheme(dark) {
 }
 
 function toggleFullscreen() {
-  const el = $('card-wrap');
+  const el = state.mode === 'learn' ? $('learn-wrap') : $('card-wrap');
   try {
     if (!document.fullscreenElement) (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
     else (document.exitFullscreen || document.webkitExitFullscreen).call(document);
@@ -1282,6 +1341,8 @@ function wireMenu() {
   });
   document.addEventListener('click', e => {
     if (!menu.hidden && !menu.contains(e.target) && e.target !== btn) menu.hidden = true;
+    const rm = $('row-menu');
+    if (rm && !rm.hidden && !rm.contains(e.target) && !e.target.closest('.dr-kebab')) { rm.hidden = true; rowMenuFor = null; }
   });
   $('menu-rename').addEventListener('click', () => {
     menu.hidden = true;
@@ -1354,9 +1415,10 @@ function wireEvents() {
   $('import-btn').addEventListener('click', openImportModal);
   $('backup-btn').addEventListener('click', openBackupModal);
   $('library-search').addEventListener('input', e => { state.libSearch = e.target.value; renderLibrary(); });
+  $('clear-lib-btn').addEventListener('click', openClearLibrary);
   $('empty-new').addEventListener('click', openImportModal);
   $('empty-import').addEventListener('click', openImportModal);
-  $('empty-sample').addEventListener('click', () => selectDeck(seedSample()));
+  $('empty-keys').addEventListener('click', openShortcuts);
 
   // header actions
   $('share-btn').addEventListener('click', openShareModal);
@@ -1489,6 +1551,7 @@ function wireEvents() {
       if (k === ' ' || k === 'Enter') { e.preventDefault(); $('learn-wrap').classList.toggle('flipped'); }
       else if (k === 'k' || k === 'K') learnVerdict(true);
       else if (k === 'l' || k === 'L') learnVerdict(false);
+      else if (k === 'f' || k === 'F') toggleFullscreen();
     } else if (state.mode === 'quiz') {
       if (['1', '2', '3', '4'].includes(k)) {
         const opts = $('quiz-list').querySelectorAll('.quiz-opt');
@@ -1544,7 +1607,7 @@ function boot() {
     const last = localStorage.getItem(LAST_KEY);
     if (last && state.decks[last]) selectDeck(last);
     else if (Object.keys(state.decks).length) selectDeck(Object.keys(state.decks)[0]);
-    else selectDeck(seedSample());  // first run: land on the sample
+    else renderAll();  // empty library → welcome page
   } else {
     // parseUrlDeck already selected the imported deck when successful
     if (!state.currentId && Object.keys(state.decks).length) selectDeck(Object.keys(state.decks)[0]);

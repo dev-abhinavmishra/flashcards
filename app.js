@@ -1,5 +1,5 @@
 /* ============================================================
-   Cardfile — a link-sharable flashcard app
+   flashcards — a link-sharable flashcard app
    Multi-deck library · Review / Learn / Quiz / Write modes
    Decks persist in localStorage; share links carry the deck in
    the URL (?d= LZ-String), so nothing needs a server.
@@ -8,6 +8,7 @@
 
 /* ---------------- storage ---------------- */
 
+/* storage keys keep the original 'cardfile' prefix so existing libraries survive the rename */
 const STORE_KEY = 'cardfile.decks.v1';
 const LAST_KEY = 'cardfile.lastDeck';
 const THEME_KEY = 'cardfile.theme';
@@ -421,7 +422,7 @@ function renderAll() {
   const empty = !d;
   els.emptyStage.hidden = !empty;
   els.deckView.hidden = empty;
-  if (!d) { document.title = 'Cardfile — flashcards that live in the link'; return; }
+  if (!d) { document.title = 'flashcards — decks that live in a link'; return; }
 
   // drop ids that no longer exist (cards may have been deleted)
   const live = new Set(d.cards.map(c => c.id));
@@ -432,7 +433,7 @@ function renderAll() {
   state.write.order = state.write.order.filter(id => live.has(id));
   state.review.idx = Math.min(state.review.idx, Math.max(0, state.review.order.length - 1));
 
-  document.title = `${d.title} — Cardfile`;
+  document.title = `${d.title} — flashcards`;
   els.deckTitle.textContent = d.title;
   const s = deckStats(d);
   els.deckMeta.innerHTML =
@@ -1184,8 +1185,8 @@ function exportLibrary() {
     cards: d.cards.map(c => ({ q: c.q, a: c.a, ex: c.ex, starred: !!c.starred, status: c.status || 'new' })),
   }));
   const stamp = new Date().toISOString().slice(0, 10);
-  download(`cardfile_library_${stamp}.json`,
-    JSON.stringify({ app: 'cardfile', kind: 'library-backup', version: 1, exportedAt: new Date().toISOString(), decks }, null, 2),
+  download(`flashcards_library_${stamp}.json`,
+    JSON.stringify({ app: 'flashcards', kind: 'library-backup', version: 1, exportedAt: new Date().toISOString(), decks }, null, 2),
     'application/json');
   toast(`Backed up ${decks.length} decks`);
   closeModal();
@@ -1283,7 +1284,7 @@ function openBackupModal() {
 
 function exportJson(d = deck()) {
   if (!d) return;
-  download(`cardfile_${d.title.replace(/[^\w]+/g, '_')}.json`,
+  download(`flashcards_${d.title.replace(/[^\w]+/g, '_')}.json`,
     JSON.stringify({ title: d.title, version: '3.0', cards: d.cards.map(c => ({ q: c.q, a: c.a, note: c.ex })) }, null, 2),
     'application/json');
 }
@@ -1292,7 +1293,7 @@ function exportCsv() {
   const d = deck(); if (!d) return;
   const q = s => `"${String(s ?? '').replace(/"/g, '""')}"`;
   const lines = ['term,answer,note', ...d.cards.map(c => `${q(c.q)},${q(c.a)},${q(c.ex)}`)];
-  download(`cardfile_${d.title.replace(/[^\w]+/g, '_')}.csv`, lines.join('\n'), 'text/csv');
+  download(`flashcards_${d.title.replace(/[^\w]+/g, '_')}.csv`, lines.join('\n'), 'text/csv');
 }
 
 function copyAsText() {
@@ -1307,7 +1308,7 @@ function printDeck() {
   const d = deck(); if (!d) return;
   els.printSheet.innerHTML = `
     <h1>${esc(d.title)}</h1>
-    <p class="pmeta">${d.cards.length} cards · printed from Cardfile · ${new Date().toLocaleDateString()}</p>
+    <p class="pmeta">${d.cards.length} cards · printed from flashcards · ${new Date().toLocaleDateString()}</p>
     <table>
       <thead><tr><th style="width:6%">#</th><th style="width:47%">${d.flipped ? 'answer' : 'term'}</th><th>${d.flipped ? 'term' : 'answer'} · note</th></tr></thead>
       <tbody>${d.cards.map((c, i) => `

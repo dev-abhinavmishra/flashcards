@@ -210,6 +210,13 @@ a { color: var(--blue); }
   font-weight: 400;
 }
 
+.library-search {
+  width: auto;
+  margin: 0 12px 6px;
+  font-size: 12px;
+  padding: 6px 9px;
+}
+
 .deck-list {
   flex: 1;
   overflow-y: auto;
@@ -1200,6 +1207,7 @@ a { color: var(--blue); }
   .deck-row { min-width: 170px; flex-shrink: 0; }
   .deck-row.active::before { left: 0; top: auto; right: 0; bottom: -1px; width: auto; height: 3px; }
   .sidebar-head { padding: 10px 12px 4px; }
+  .library-search { margin: 0 12px 8px; }
   .sidebar-foot { display: flex; gap: 8px; padding: 0 12px 12px; border-top: none; }
   .sidebar-foot .btn { flex: 1; }
   .deck-header { padding: 20px 18px 0; }

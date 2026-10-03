@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Cardfile — a flashcard library that lives in your browser. Review, learn, quiz, and write cards; share decks as links.">
+<meta name="theme-color" content="#f6f4ee">
+<meta property="og:title" content="Cardfile">
+<meta property="og:description" content="Flashcards that travel as links — a library in your browser, no account needed.">
+<meta property="og:type" content="website">
 <link rel="icon" type="image/png" href="favicon.png">
 <title>Cardfile — flashcards that live in the link</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -38,10 +43,12 @@
       <h2>Library</h2>
       <span class="section-label" id="library-count"></span>
     </div>
+    <input class="search-input library-search" id="library-search" placeholder="filter decks…" aria-label="Filter decks">
     <nav class="deck-list" id="deck-list" aria-label="Your decks"></nav>
     <div class="sidebar-foot">
       <button class="btn primary block" id="new-deck-btn">New deck</button>
       <button class="btn ghost block" id="import-btn">Import cards…</button>
+      <button class="btn ghost block" id="backup-btn">Backup / restore…</button>
     </div>
   </aside>
 

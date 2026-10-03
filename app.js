@@ -27,6 +27,7 @@ const state = {
   quiz: { order: [], idx: 0, correct: 0, answered: false, missed: [] },
   write: { order: [], idx: 0, correct: 0, checked: false, missed: [] },
   search: '',
+  libSearch: '',
 };
 
 function loadStore() {
@@ -303,9 +304,16 @@ function deckStats(d) {
 }
 
 function renderLibrary() {
-  const ids = Object.keys(state.decks).sort((a, b) =>
-    (state.decks[b].lastStudiedAt || state.decks[b].createdAt) - (state.decks[a].lastStudiedAt || state.decks[a].createdAt));
+  const q = norm(state.libSearch);
+  const ids = Object.keys(state.decks)
+    .filter(id => !q || norm(state.decks[id].title).includes(q))
+    .sort((a, b) =>
+      (state.decks[b].lastStudiedAt || state.decks[b].createdAt) - (state.decks[a].lastStudiedAt || state.decks[a].createdAt));
   els.libraryCount.textContent = ids.length ? `${ids.length} deck${ids.length === 1 ? '' : 's'}` : '';
+  if (!ids.length && q) {
+    els.deckList.innerHTML = `<div class="deck-row" style="cursor:default"><span class="dr-meta">no decks match</span></div>`;
+    return;
+  }
   els.deckList.innerHTML = ids.map(id => {
     const d = state.decks[id];
     const s = deckStats(d);
@@ -1106,6 +1114,89 @@ function download(name, text, type = 'text/plain') {
   a.remove();
 }
 
+/* ---------------- library backup ---------------- */
+
+function exportLibrary() {
+  const decks = Object.values(state.decks).map(d => ({
+    title: d.title,
+    flipped: !!d.flipped,
+    cards: d.cards.map(c => ({ q: c.q, a: c.a, ex: c.ex, starred: !!c.starred, status: c.status || 'new' })),
+  }));
+  const stamp = new Date().toISOString().slice(0, 10);
+  download(`cardfile_library_${stamp}.json`,
+    JSON.stringify({ app: 'cardfile', kind: 'library-backup', version: 1, exportedAt: new Date().toISOString(), decks }, null, 2),
+    'application/json');
+  toast(`Backed up ${decks.length} decks`);
+  closeModal();
+}
+
+function importLibrary(obj) {
+  const rows = obj.decks;
+  let added = 0, skipped = 0;
+  for (const row of rows) {
+    if (!row || !Array.isArray(row.cards)) { skipped++; continue; }
+    const cards = row.cards.map(c => ({
+      q: c.q || '', a: c.a || '', ex: c.ex || c.note || '',
+      starred: !!c.starred, status: c.status,
+    })).filter(c => c.q && c.a);
+    if (!cards.length) { skipped++; continue; }
+    const fp = deckFingerprint(row.title || 'Deck', cards);
+    if (Object.values(state.decks).some(d =>
+      deckFingerprint(d.title, d.cards.map(c => ({ q: c.q, a: c.a }))) === fp)) { skipped++; continue; }
+    const d = createDeck(row.title || 'Deck', cards.map(c => {
+      const nc = newCard(c.q, c.a, c.ex);
+      nc.starred = c.starred;
+      if (['new', 'learning', 'mastered'].includes(c.status)) nc.status = c.status;
+      return nc;
+    }));
+    d.flipped = !!row.flipped;
+    added++;
+  }
+  saveStore(); renderLibrary(); renderMeta();
+  closeModal();
+  toast(`Restored ${added} deck${added === 1 ? '' : 's'}${skipped ? ` · skipped ${skipped} duplicate${skipped === 1 ? '' : 's'}` : ''}`, 3200);
+  if (added && !state.currentId) selectDeck(Object.keys(state.decks)[0]);
+}
+
+function openBackupModal() {
+  const n = Object.keys(state.decks).length;
+  openModal(`
+    <h3>Backup &amp; restore</h3>
+    <p class="modal-sub">${n} deck${n === 1 ? '' : 's'} in this browser → one <code>.json</code> file (stars and progress included). Restoring merges into the current library; decks already here are skipped, so it also works to combine libraries from different browsers.</p>
+    <div class="modal-actions" style="justify-content:space-between">
+      <button class="btn ghost" id="bk-restore">Restore from file…</button>
+      <span style="display:flex;gap:10px">
+        <button class="btn ghost" data-close>Cancel</button>
+        <button class="btn primary" id="bk-export">Download backup</button>
+      </span>
+    </div>`);
+  $('bk-export').addEventListener('click', exportLibrary);
+  $('bk-restore').addEventListener('click', () => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = '.json';
+    inp.onchange = () => {
+      const f = inp.files[0]; if (!f) return;
+      const r = new FileReader();
+      r.onload = () => {
+        try {
+          const obj = JSON.parse(String(r.result || ''));
+          if (Array.isArray(obj.decks)) { importLibrary(obj); return; }
+          // fall back: a single-deck export file
+          const cards = parseJsonCards(obj);
+          if (!cards || !cards.length) { toast('No decks found in that file.'); return; }
+          closeModal();
+          const d = createDeck(obj.title || obj.t || 'Restored deck', cards.map(c => newCard(c.q, c.a, c.ex)));
+          saveStore(); selectDeck(d.id);
+          toast(`Restored “${d.title}”`);
+        } catch { toast('That file isn’t valid JSON.'); }
+      };
+      r.readAsText(f);
+    };
+    inp.click();
+  });
+}
+
 function exportJson() {
   const d = deck(); if (!d) return;
   download(`cardfile_${d.title.replace(/[^\w]+/g, '_')}.json`,
@@ -1261,6 +1352,8 @@ function wireEvents() {
   // sidebar / empty
   $('new-deck-btn').addEventListener('click', openImportModal);
   $('import-btn').addEventListener('click', openImportModal);
+  $('backup-btn').addEventListener('click', openBackupModal);
+  $('library-search').addEventListener('input', e => { state.libSearch = e.target.value; renderLibrary(); });
   $('empty-new').addEventListener('click', openImportModal);
   $('empty-import').addEventListener('click', openImportModal);
   $('empty-sample').addEventListener('click', () => selectDeck(seedSample()));

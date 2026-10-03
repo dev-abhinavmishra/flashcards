@@ -210,10 +210,10 @@ function decodeDeckV2(encoded) {
 function decompressV1(data) {
   try {
     const obj = JSON.parse(decodeURIComponent(atob(data)));
-    return {
-      title: obj.t,
-      cards: obj.c.map(c => ({ q: c[0], a: c[1], ex: c[2] || '' })),
-    };
+    const cards = (Array.isArray(obj.c) ? obj.c : []).map(c => ({ q: c[0], a: c[1], ex: c[2] || '' }))
+      .filter(c => c.q && c.a);
+    if (!cards.length) return null;
+    return { title: obj.t, cards };
   } catch { return null; }
 }
 
@@ -226,6 +226,8 @@ function deckFingerprint(title, cards) {
 
 /** Import a shared-link deck into the library (deduped), select it. */
 function importSharedDeck(title, rawCards) {
+  rawCards = rawCards.filter(c => c && c.q && c.a);
+  if (!rawCards.length) { toast('That link had no usable cards in it.'); return; }
   const fp = deckFingerprint(title, rawCards);
   const existing = Object.values(state.decks).find(d =>
     deckFingerprint(d.title, d.cards.map(c => ({ q: c.q, a: c.a }))) === fp);
@@ -1591,24 +1593,26 @@ function boot() {
 
   // migrate: old single-file app stored decks as 'flashcard_deck_*'.
   // Each key is migrated once — deleting the imported deck must not resurrect it.
-  try {
-    const migrated = new Set(JSON.parse(localStorage.getItem('cardfile.migratedKeys') || '[]'));
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith('flashcard_deck_') && !migrated.has(key)) {
-        const obj = JSON.parse(localStorage.getItem(key));
-        if (obj && obj.cards) importSharedDeckSilent(obj.title || 'Saved deck', obj.cards.map(c =>
-          ({ q: c.question ?? c.q, a: c.definition ?? c.a, ex: c.example ?? c.ex })));
-        migrated.add(key);
-      }
-    }
-    localStorage.setItem('cardfile.migratedKeys', JSON.stringify([...migrated]));
-  } catch {}
+  const migrated = (() => { try { return new Set(JSON.parse(localStorage.getItem('cardfile.migratedKeys') || '[]')); } catch { return new Set(); } })();
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith('flashcard_deck_') || migrated.has(key)) continue;
+    migrated.add(key);
+    // one corrupt value must not abort the rest of the library
+    try {
+      const obj = JSON.parse(localStorage.getItem(key));
+      if (obj && Array.isArray(obj.cards)) importSharedDeckSilent(obj.title || 'Saved deck', obj.cards.map(c =>
+        ({ q: c.question ?? c.q, a: c.definition ?? c.a, ex: c.example ?? c.ex })));
+    } catch {}
+  }
+  try { localStorage.setItem('cardfile.migratedKeys', JSON.stringify([...migrated])); } catch {}
 
   function importSharedDeckSilent(title, raw) {
-    const fp = deckFingerprint(title, raw);
+    const clean = raw.filter(c => c.q && c.a);
+    if (!clean.length) return;
+    const fp = deckFingerprint(title, clean);
     if (Object.values(state.decks).some(d => deckFingerprint(d.title, d.cards.map(c => ({ q: c.q, a: c.a }))) === fp)) return;
-    const d = createDeck(title, raw.map(c => newCard(diacritics(c.q), diacritics(c.a), diacritics(c.ex || ''))));
+    const d = createDeck(title, clean.map(c => newCard(diacritics(c.q), diacritics(c.a), diacritics(c.ex || ''))));
     saveStore();
   }
 

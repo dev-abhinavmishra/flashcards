@@ -1,1241 +1,253 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/x-icon" href="/favicon.png">
-    <title>Flashcards</title>
-    <!-- Load Tailwind CSS -->
-    <!-- Note: Using CDN for development - in production, install Tailwind CSS as PostCSS plugin -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                    },
-                    colors: {
-                        'surface-container-lowest': '#fefcfa',
-                    },
-                }
-            }
-        }
-    </script>
-    <!-- LZ-String for high-ratio URL-safe compression -->
-    <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
-    <!-- Use Inter font family -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            transition: background-color 0.3s, color 0.3s;
-            position: relative;
-        }
-
-        /* --- Warm editorial surfaces --- */
-        .app-bg {
-            background-color: #f9f7f2;
-        }
-        .dark .app-bg {
-            background-color: #1A1816;
-        }
-        .glass {
-            background: #FDFCF9;
-            border: 1px solid #DDD6CC;
-            box-shadow: 0 1px 3px rgba(31, 27, 23, 0.04), 0 1px 2px rgba(31, 27, 23, 0.03);
-        }
-        .dark .glass {
-            background: #252220;
-            border: 1px solid #353230;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-        }
-        .glass-strong {
-            background: #FDFCF9;
-            border: 1px solid #DDD6CC;
-            box-shadow: 0 2px 8px rgba(31, 27, 23, 0.06), 0 1px 2px rgba(31, 27, 23, 0.04);
-        }
-        .dark .glass-strong {
-            background: #252220;
-            border: 1px solid #353230;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-        }
-        .glass-tint {
-            background: #FAF7F2;
-            border: 1px solid #E2D9CC;
-            box-shadow: 0 2px 8px rgba(31, 27, 23, 0.05), 0 1px 2px rgba(31, 27, 23, 0.03);
-        }
-        .dark .glass-tint {
-            background: #2E2B28;
-            border: 1px solid #3A3530;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-        }
-
-        /* Card face overrides */
-        .card-front, .card-back {
-            -webkit-backdrop-filter: none !important;
-            backdrop-filter: none !important;
-        }
-        .card-front.glass-strong {
-            background: #FDFCF9;
-        }
-        .dark .card-front.glass-strong {
-            background: #252220;
-        }
-        .card-back.glass-tint {
-            background: #FAF7F2;
-        }
-        .dark .card-back.glass-tint {
-            background: #2E2B28;
-        }
-
-        /* 3D Flip Animation */
-        .card-container {
-            perspective: 1400px;
-        }
-        .card-inner {
-            position: relative;
-            width: 100%;
-            height: 100%;
-            transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
-            transform-style: preserve-3d;
-            will-change: transform;
-        }
-        .card-container.flipped .card-inner {
-            transform: rotateY(180deg);
-        }
-        /* Lift effect on flip */
-        .card-container.flipped {
-            filter: drop-shadow(0 8px 24px rgba(31, 27, 23, 0.08));
-        }
-        .card-front, .card-back {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            backface-visibility: hidden;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
-            padding: 2rem;
-            border-radius: 1.5rem;
-        }
-        .card-back {
-            transform: rotateY(180deg);
-        }
-        .card-hint {
-            position: absolute;
-            bottom: 1rem;
-            font-size: 0.7rem;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-            opacity: 0.5;
-            font-weight: 600;
-        }
-
-        /* Responsive Text Scaling - Default/Mobile */
-        .card-content-front {
-            font-size: 2.25rem;
-            font-weight: 700;
-            transition: font-size 0.3s;
-        }
-        .card-content-back-def {
-             font-size: 1.5rem;
-             font-weight: 600;
-             transition: font-size 0.3s;
-        }
-        .card-content-back-ex {
-             font-size: 1.125rem;
-             transition: font-size 0.3s;
-        }
-
-        @media (max-width: 640px) {
-            .card-content-front {
-                font-size: 1.75rem;
-            }
-            .card-content-back-def {
-                font-size: 1.25rem;
-            }
-            .card-content-back-ex {
-                font-size: 1rem;
-            }
-        }
-
-        /* Card entrance animations */
-        @keyframes cardFadeUp {
-            from { opacity: 0; transform: translateY(8px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes slideFromRight {
-            from { opacity: 0; transform: translateX(40px); }
-            to   { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes slideFromLeft {
-            from { opacity: 0; transform: translateX(-40px); }
-            to   { opacity: 1; transform: translateX(0); }
-        }
-        .card-anim {
-            animation: cardFadeUp 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-        }
-        .card-slide-right {
-            animation: slideFromRight 0.35s cubic-bezier(0.22, 1, 0.36, 1);
-        }
-        .card-slide-left {
-            animation: slideFromLeft 0.35s cubic-bezier(0.22, 1, 0.36, 1);
-        }
-
-        /* Keyboard hint chips */
-        .kbd {
-            display: inline-block;
-            padding: 0.1rem 0.45rem;
-            border-radius: 0.375rem;
-            border: 1px solid #DDD6CC;
-            border-bottom-width: 2px;
-            font-size: 0.7rem;
-            font-weight: 600;
-            line-height: 1.2;
-            background: #FDFCF9;
-            color: #6B625A;
-        }
-        .dark .kbd {
-            background: #252220;
-            border-color: #353230;
-            color: #8C847C;
-        }
-
-        /* --- Fullscreen Styles --- */
-        #flashcard-container:fullscreen,
-        #flashcard-container:-webkit-full-screen,
-        #flashcard-container:-moz-full-screen,
-        #flashcard-container:-ms-full-screen {
-            background: transparent;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0;
-            padding: 0;
-            cursor: pointer;
-            z-index: 9999;
-        }
-
-        #flashcard-container:fullscreen #card-inner,
-        #flashcard-container:-webkit-full-screen #card-inner,
-        #flashcard-container:-moz-full-screen #card-inner,
-        #flashcard-container:-ms-full-screen #card-inner {
-            width: 80vw;
-            height: 70vh;
-            max-width: 90%;
-            max-height: 90%;
-            border-radius: 2rem;
-        }
-
-        #flashcard-container:fullscreen .card-content-front,
-        #flashcard-container:-webkit-full-screen .card-content-front,
-        #flashcard-container:-moz-full-screen .card-content-front,
-        #flashcard-container:-ms-full-screen .card-content-front {
-            font-size: 4rem;
-        }
-
-        #flashcard-container:fullscreen .card-content-back-def,
-        #flashcard-container:-webkit-full-screen .card-content-back-def,
-        #flashcard-container:-moz-full-screen .card-content-back-def,
-        #flashcard-container:-ms-full-screen .card-content-back-def {
-            font-size: 2.5rem;
-        }
-
-        #flashcard-container:fullscreen .card-content-back-ex,
-        #flashcard-container:-webkit-full-screen .card-content-back-ex,
-        #flashcard-container:-moz-full-screen .card-content-back-ex,
-        #flashcard-container:-ms-full-screen .card-content-back-ex {
-            font-size: 1.5rem;
-        }
-
-
-    </style>
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="favicon.png">
+<title>Cardfile — flashcards that live in the link</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700;800&family=Newsreader:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
+<link rel="stylesheet" href="styles.css">
 </head>
-<body class="app-bg flex items-center justify-center min-h-screen p-6">
+<body>
 
-    
-<div class="w-full max-w-2xl mx-auto relative z-[1]">
+<div class="app">
 
-        <!-- Header -->
-        <header class="text-center mb-6">
-            <h1 id="deck-title" class="text-3xl md:text-4xl font-bold tracking-tight text-[#1F1B17] dark:text-[#E8E4DE]">Flashcard Deck</h1>
-            <p id="deck-subtitle" class="mt-1 text-sm text-[#6B625A] dark:text-[#8C847C]"></p>
-        </header>
+  <!-- ======= top bar ======= -->
+  <header class="topbar">
+    <a class="wordmark" href="./">
+      <span class="card-mark" aria-hidden="true"></span>
+      <span class="name">Cardfile</span>
+      <span class="tag">index cards, filed</span>
+    </a>
+    <div class="spacer"></div>
+    <span class="sysline" id="sysline">saved in this browser · decks travel by link</span>
+    <button class="icon-btn" id="shortcuts-btn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>
+    </button>
+    <button class="icon-btn" id="theme-btn" title="Toggle light / dark (T)" aria-label="Toggle theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+  </header>
 
-        <main>
-            <!-- Progress Bar -->
-            <div class="flex items-center gap-3 mb-6">
-                <div class="flex-grow h-2 rounded-full overflow-hidden bg-[#E2D9CC] dark:bg-[#353230]">
-                    <div id="progress-bar" class="h-full bg-[#D97757] transition-all duration-300 ease-in-out" style="width: 0%;"></div>
-                </div>
-                <div id="card-counter" class="text-xs font-semibold text-[#6B625A] dark:text-[#8C847C] px-2.5 py-1 whitespace-nowrap">
-                    0 / 0
-                </div>
-            </div>
-
-            <!-- Flashcard Container - Target for Fullscreen -->
-            <div id="flashcard-container" class="card-container w-full h-80 cursor-pointer mb-6" onclick="flipCard()">
-                <div id="card-inner" class="card-inner">
-                    <!-- Front of Card (Question / Root) -->
-                    <div id="card-front" class="card-front glass-strong">
-                        <p class="card-content-front text-[#1F1B17] dark:text-[#E8E4DE]"></p>
-                        <span class="card-hint text-[#A39B93] dark:text-[#6B625A]">Tap or press Space to flip</span>
-                    </div>
-                    <!-- Back of Card (Answer / Definition + Example) -->
-                    <div id="card-back" class="card-back glass-tint">
-                        <div class="text-[#1F1B17] dark:text-[#E8E4DE] p-4">
-                           <p id="back-definition" class="card-content-back-def text-[#1F1B17] dark:text-[#E8E4DE] mb-2"></p>
-                           <p id="back-example" class="card-content-back-ex text-[#6B625A] dark:text-[#9C958E] italic"></p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Controls -->
-            <div class="glass p-3 rounded-2xl mb-4 max-w-fit mx-auto">
-                <!-- Top Row: Navigation -->
-                <div class="flex items-center justify-center gap-2 mb-2">
-                    <button id="prev-btn" onclick="prevCard()" class="px-4 py-2 bg-[#FDFCF9] dark:bg-[#252220] text-[#1F1B17] dark:text-[#E8E4DE] font-semibold rounded-xl border border-[#DDD6CC] dark:border-[#353230] shadow-sm hover:bg-[#FAF7F2] dark:hover:bg-[#2E2B28] transition duration-150 ease-in-out disabled:opacity-40 disabled:cursor-not-allowed">
-                        &larr; Previous
-                    </button>
-                    <button id="flip-button" onclick="flipCard()" class="px-5 py-2 bg-[#D97757] text-white font-semibold rounded-xl shadow-sm hover:bg-[#C0684A] focus:outline-none focus:ring-2 focus:ring-[#D97757]/40 transition-all duration-150">
-                        Flip
-                    </button>
-                    <button id="next-btn" onclick="nextCard()" class="px-4 py-2 bg-[#D97757] text-white font-semibold rounded-xl shadow-sm hover:bg-[#C0684A] transition duration-150 ease-in-out disabled:opacity-40 disabled:cursor-not-allowed">
-                        Next &rarr;
-                    </button>
-                </div>
-
-                <!-- Bottom Row: Actions -->
-                <div class="flex items-center justify-center gap-2">
-                    <button id="switch-button" onclick="switchTermDefinition()" class="px-3 py-1.5 bg-[#D97757] text-white font-semibold rounded-lg shadow-sm hover:bg-[#C0684A] focus:outline-none focus:ring-2 focus:ring-[#D97757]/40 transition-all duration-150 text-sm">
-                        Switch Term/Definition
-                    </button>
-                    <div class="flex items-center gap-1.5 ml-2 pl-3 border-l border-[#DDD6CC] dark:border-[#353230]">
-                    <!-- Shuffle Button -->
-                    <button id="shuffle-btn" onclick="shuffleDeckAndRender()" title="Shuffle OFF — click to shuffle (S)" class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#DDD6CC] dark:border-[#353230] bg-[#FDFCF9] dark:bg-[#252220] text-[#D97757] dark:text-[#D97757] rounded-lg shadow-sm hover:bg-[#FAF7F2] dark:hover:bg-[#2E2B28] transition duration-150 ease-in-out text-sm font-semibold">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="16 3 21 3 21 8"/>
-                            <line x1="4" y1="20" x2="21" y2="3"/>
-                            <polyline points="21 16 21 21 16 21"/>
-                            <line x1="15" y1="15" x2="16" y2="16"/>
-                            <line x1="14" y1="12" x2="15" y2="13"/>
-                            <line x1="8" y1="8" x2="9" y2="9"/>
-                        </svg>
-                        <span>Shuffle</span>
-                    </button>
-                    <!-- Theme Toggle Button -->
-                    <button id="theme-toggle" title="Toggle Dark/Light Mode" class="p-2 bg-[#FDFCF9] dark:bg-[#252220] text-[#6B625A] dark:text-[#9C958E] rounded-lg border border-[#DDD6CC] dark:border-[#353230] shadow-sm hover:bg-[#FAF7F2] dark:hover:bg-[#2E2B28] transition duration-150 ease-in-out">
-                        <svg id="sun-icon" class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="display:none;">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                        </svg>
-                        <svg id="moon-icon" class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="display:block;">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                        </svg>
-                    </button>
-                    <!-- Fullscreen Button -->
-                    <button id="fullscreen-btn" onclick="toggleFullscreen()" title="Toggle Fullscreen" class="p-2 bg-[#FDFCF9] dark:bg-[#252220] text-[#6B625A] dark:text-[#9C958E] rounded-lg border border-[#DDD6CC] dark:border-[#353230] shadow-sm hover:bg-[#FAF7F2] dark:hover:bg-[#2E2B28] transition duration-150 ease-in-out">
-                        <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-3v4m0 0h-4m4 0l-5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
-                        </svg>
-                    </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Keyboard hints -->
-            <p class="text-center text-xs text-[#6B625A] dark:text-[#8C847C] mb-6">
-                <span class="kbd">&larr;</span> <span class="kbd">&rarr;</span> navigate &nbsp;&middot;&nbsp;
-                <span class="kbd">Space</span> flip &nbsp;&middot;&nbsp;
-                <span class="kbd">S</span> shuffle
-            </p>
-
-            <hr class="w-full border-t border-[#DDD6CC] dark:border-[#353230] my-8">
-
-            <!-- URL Generator Section -->
-            <div class="glass w-full p-6 rounded-2xl mt-6">
-                <h2 class="text-xl font-bold text-[#1F1B17] dark:text-[#E8E4DE] mb-1">Flashcard Link Generator</h2>
-                <p class="text-[#6B625A] dark:text-[#8C847C] mb-4 text-sm">
-                    Create a shareable deck that lives entirely in the link &mdash; nothing is stored on a server.
-                </p>
-                <div class="bg-[#FAF7F2] dark:bg-[#252220] rounded-lg p-3 mb-4 text-sm text-[#1F1B17] dark:text-[#E8E4DE] border border-[#DDD6CC] dark:border-[#353230]">
-                    <p class="font-semibold text-[#1F1B17] dark:text-[#E8E4DE] mb-1">One card per line:</p>
-                    <p><code class="font-mono">Term : Definition | Optional example sentence</code></p>
-                    <p class="mt-1 text-xs text-[#6B625A] dark:text-[#8C847C]">Tip: add a macron to a Latin vowel with <code class="font-mono">^</code> or <code class="font-mono">_</code> (e.g. <code class="font-mono">intent^e</code> &rarr; intentē).</p>
-                </div>
-
-                <input type="text" id="title-input" class="w-full p-3 bg-[#FDFCF9] dark:bg-[#252220] dark:text-[#E8E4DE] rounded-lg border border-[#DDD6CC] dark:border-[#353230] focus:ring-2 focus:ring-[#D97757]/40 focus:border-[#D97757] focus:outline-none text-[#1F1B17] placeholder-[#A39B93] dark:placeholder-[#6B625A] mb-3" placeholder="Enter Deck Title (e.g., Biology Terms)">
-
-                <textarea id="card-input" rows="6" class="w-full p-3 bg-[#FDFCF9] dark:bg-[#252220] dark:text-[#E8E4DE] rounded-lg border border-[#DDD6CC] dark:border-[#353230] focus:ring-2 focus:ring-[#D97757]/40 focus:border-[#D97757] focus:outline-none text-[#1F1B17] placeholder-[#A39B93] dark:placeholder-[#6B625A] mb-1 resize-y font-mono text-sm" placeholder="ferociter:fiercely | He fought ferociter in battle.&#10;conspicit:catches sight of | She conspicit the enemy.&#10;intent^e:intently | He listened intent^e to the lecture."></textarea>
-                <p id="input-stats" class="text-xs text-[#6B625A] dark:text-[#8C847C] mb-3 text-right"></p>
-
-                <button onclick="generateLink()" class="w-full py-3 bg-[#D97757] text-white font-bold rounded-xl shadow-sm hover:bg-[#C0684A] transition duration-150 ease-in-out">
-                    Generate Shareable Link
-                </button>
-
-                <!-- Data Management Buttons -->
-                <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <button onclick="exportDeck()" class="py-2 px-4 bg-[#D97757] text-white font-semibold rounded-lg shadow-sm hover:bg-[#C0684A] transition duration-150 ease-in-out">
-                        &#128229; Export Deck
-                    </button>
-                    <button onclick="importDeck()" class="py-2 px-4 bg-[#D97757] text-white font-semibold rounded-lg shadow-sm hover:bg-[#C0684A] transition duration-150 ease-in-out">
-                        &#128228; Import Deck
-                    </button>
-                </div>
-
-                <div id="link-output-container" class="mt-4 hidden">
-                    <p class="text-sm font-medium text-[#6B625A] dark:text-[#8C847C] mb-2">Share this link:</p>
-                    <div class="flex items-center">
-                        <input type="text" id="link-output" readonly class="flex-grow p-3 bg-[#FDFCF9] dark:bg-[#252220] dark:text-[#E8E4DE] rounded-l-lg border border-[#DDD6CC] dark:border-[#353230] text-sm truncate">
-                        <button onclick="copyLink()" class="p-3 bg-[#6B625A] text-white rounded-r-lg hover:bg-[#5A524A] transition duration-150 ease-in-out flex-shrink-0">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                <path d="M8 2a1 1 0 000 2h2a1 1 0 100-2H8z" />
-                                <path d="M3 5a2 2 0 012-2c1.248 0 2.213.792 2.85 1.775L9 5h1l.15-.225C10.787 3.792 11.752 3 13 3a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V5zm10 2a1 1 0 100 2h-3a1 1 0 100 2h3a1 1 0 100 2h-3a1 1 0 100 2H5V7h8z" clip-rule="evenodd" />
-                            </svg>
-                        </button>
-                    </div>
-                    <!-- URL capacity meter -->
-                    <div class="mt-3">
-                        <div class="flex justify-between text-xs text-[#6B625A] dark:text-[#8C847C] mb-1">
-                            <span id="url-length-label"></span>
-                            <span id="url-capacity-label"></span>
-                        </div>
-                        <div class="w-full h-1.5 rounded-full overflow-hidden bg-[#E2D9CC] dark:bg-[#353230]">
-                            <div id="url-capacity-bar" class="h-full bg-[#D97757] transition-all duration-300" style="width: 0%;"></div>
-                        </div>
-                    </div>
-                    <p id="copy-message" class="text-xs text-[#C0684A] mt-1 opacity-0 transition duration-300">Link copied!</p>
-                </div>
-            </div>
-        </main>
+  <!-- ======= library sidebar ======= -->
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <h2>Library</h2>
+      <span class="section-label" id="library-count"></span>
     </div>
-
-    <script>
-        // --- DATA ---
-        const defaultCards = [];
-
-        // Practical URL length budget (safe across browsers, chat apps, QR codes)
-        const URL_SAFE_LIMIT = 8000;
-        const URL_HARD_LIMIT = 30000;
-
-        // --- Core Application State ---
-        let currentDeck = [];
-        let currentCardIndex = 0;
-        let isFlipped = false;
-        let shuffleEnabled = false;
-        let originalDeck = [];
-
-        // --- DOM Elements ---
-        const flashcardContainer = document.getElementById('flashcard-container');
-        const cardInnerEl = document.getElementById('card-inner');
-        const cardFrontText = document.querySelector('#card-front .card-content-front');
-        const cardBackDefEl = document.getElementById('back-definition');
-        const cardBackExEl = document.getElementById('back-example');
-        const prevBtn = document.getElementById('prev-btn');
-        const nextBtn = document.getElementById('next-btn');
-        const cardCounterEl = document.getElementById('card-counter');
-        const deckTitleEl = document.getElementById('deck-title');
-        const deckSubtitleEl = document.getElementById('deck-subtitle');
-        const progressBarEl = document.getElementById('progress-bar');
-        const linkOutputContainer = document.getElementById('link-output-container');
-        const linkOutputEl = document.getElementById('link-output');
-        const copyMessageEl = document.getElementById('copy-message');
-
-        // --- Utility Functions ---
-
-        /**
-         * Formats Latin text with proper diacritical marks and accent formatting
-         * Converts common Latin diacritical representations to proper Unicode characters
-         */
-        function formatLatinAccents(text) {
-            if (!text) return text;
-
-            const hasUnicodeAccents = /[āēīōūăĕĭŏŭĀĒĪŌŪĂĔĬŎŬ]/.test(text);
-            if (hasUnicodeAccents) {
-                return text;
-            }
-
-            const macronMap = {
-                'a': 'ā', 'A': 'Ā',
-                'e': 'ē', 'E': 'Ē',
-                'i': 'ī', 'I': 'Ī',
-                'o': 'ō', 'O': 'Ō',
-                'u': 'ū', 'U': 'Ū'
-            };
-
-            const breveMap = {
-                'a': 'ă', 'A': 'Ă',
-                'e': 'ĕ', 'E': 'Ĕ',
-                'i': 'ĭ', 'I': 'Ĭ',
-                'o': 'ŏ', 'O': 'Ŏ',
-                'u': 'ŭ', 'U': 'Ŭ'
-            };
-
-            let formattedText = text;
-
-            formattedText = formattedText.replace(/([aeiouAEIOU])̄/g, (match, vowel) => macronMap[vowel] || match);
-            formattedText = formattedText.replace(/([aeiouAEIOU])_/g, (match, vowel) => macronMap[vowel] || match);
-            formattedText = formattedText.replace(/([aeiouAEIOU])\^/g, (match, vowel) => macronMap[vowel] || match);
-            formattedText = formattedText.replace(/([aeiouAEIOU])`/g, (match, vowel) => macronMap[vowel] || match);
-            formattedText = formattedText.replace(/([aeiouAEIOU])̆/g, (match, vowel) => breveMap[vowel] || match);
-            formattedText = formattedText.replace(/([aeiouAEIOU])´/g, (match, vowel) => macronMap[vowel] || match);
-
-            return formattedText;
-        }
-
-        /**
-         * Shuffles an array in place (Fisher-Yates algorithm).
-         */
-        function shuffle(array) {
-             for (let i = array.length - 1; i > 0; i--) {
-                 const j = Math.floor(Math.random() * (i + 1));
-                 [array[i], array[j]] = [array[j], array[i]];
-             }
-         }
-
-        /**
-         * Saves the current deck order as the original reference order.
-         */
-        function saveOriginalOrder() {
-            originalDeck = currentDeck.map(card => ({...card}));
-        }
-
-        /**
-         * Toggles shuffle on/off and updates the button state.
-         * ON  → shuffles randomly and resets to first card.
-         * OFF → restores the original input order.
-         */
-        function toggleShuffle() {
-            if (currentDeck.length <= 1) return;
-            shuffleEnabled = !shuffleEnabled;
-            if (shuffleEnabled) {
-                shuffle(currentDeck);
-            } else {
-                currentDeck = originalDeck.map(card => ({...card}));
-            }
-            currentCardIndex = 0;
-            updateShuffleButton();
-            renderCard();
-        }
-
-        function updateShuffleButton() {
-            const btn = document.getElementById('shuffle-btn');
-            if (!btn) return;
-            if (shuffleEnabled) {
-                btn.className = 'inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#D97757] text-white rounded-lg shadow-sm hover:bg-[#C0684A] transition duration-150 ease-in-out text-sm font-semibold';
-                btn.title = 'Shuffle ON — click to turn OFF (S)';
-            } else {
-                btn.className = 'inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#DDD6CC] dark:border-[#353230] bg-[#FDFCF9] dark:bg-[#252220] text-[#D97757] dark:text-[#D97757] rounded-lg shadow-sm hover:bg-[#FAF7F2] dark:hover:bg-[#2E2B28] transition duration-150 ease-in-out text-sm font-semibold';
-                btn.title = 'Shuffle OFF — click to shuffle (S)';
-            }
-        }
-
-        window.shuffleDeckAndRender = toggleShuffle;
-
-        /**
-         * Shuffles the deck unconditionally (used by the S key).
-         */
-        function forceShuffle() {
-            if (currentDeck.length <= 1) return;
-            shuffle(currentDeck);
-            shuffleEnabled = true;
-            currentCardIndex = 0;
-            updateShuffleButton();
-            renderCard();
-        }
-
-
-        // --- Dark Mode Logic ---
-
-        function applyTheme(enable) {
-            const htmlEl = document.documentElement;
-            const sunIcon = document.getElementById('sun-icon');
-            const moonIcon = document.getElementById('moon-icon');
-
-            if (enable) {
-                htmlEl.classList.add('dark');
-                localStorage.setItem('theme', 'dark');
-                sunIcon.style.display = 'block';
-                moonIcon.style.display = 'none';
-            } else {
-                htmlEl.classList.remove('dark');
-                localStorage.setItem('theme', 'light');
-                sunIcon.style.display = 'none';
-                moonIcon.style.display = 'block';
-            }
-        }
-
-        window.toggleTheme = function() {
-            const isDarkMode = document.documentElement.classList.contains('dark');
-            applyTheme(!isDarkMode);
-        }
-
-        // --- Fullscreen Logic ---
-
-        window.toggleFullscreen = function() {
-            const container = document.getElementById('flashcard-container');
-
-            try {
-                let promiseResult;
-                if (!document.fullscreenElement) {
-                    if (container.requestFullscreen) {
-                        promiseResult = container.requestFullscreen();
-                    } else if (container.webkitRequestFullscreen) { /* Safari */
-                        promiseResult = container.webkitRequestFullscreen();
-                    } else if (container.msRequestFullscreen) { /* IE11 */
-                        promiseResult = container.msRequestFullscreen();
-                    }
-                } else {
-                    if (document.exitFullscreen) {
-                        promiseResult = document.exitFullscreen();
-                    } else if (document.webkitExitFullscreen) { /* Safari */
-                        promiseResult = document.webkitExitFullscreen();
-                    } else if (document.msExitFullscreen) { /* IE11 */
-                        promiseResult = document.msExitFullscreen();
-                    }
-                }
-
-                if (promiseResult && typeof promiseResult.catch === 'function') {
-                    promiseResult.catch(e => {
-                        console.warn("Fullscreen operation failed due to browser/permission policy:", e.message);
-                    });
-                }
-            } catch (e) {
-                console.warn("Fullscreen failed (sync error): This is often due to security restrictions in the embedded environment (iframe). The error was:", e.message);
-            }
-        }
-
-
-        // --- Deck Serialization and Compression ---
-
-        /**
-         * V2 encoder: serializes the deck to a compact plain-text format then
-         * compresses it with LZ-String into a URL-safe string.
-         *
-         * Plain-text format (delimiters \x1F unit / \x1E record):
-         *   title \x1E q \x1F def \x1F ex \x1E q \x1F def \x1F ex ...
-         * Empty examples serialize to an empty field (zero overhead),
-         * and the LZ dictionary compresses repeated words across cards.
-         */
-        function encodeDeckV2(title, cards) {
-            const RS = '\x1E', US = '\x1F';
-            const parts = [title || ''];
-            for (const card of cards) {
-                const ex = (card.example && card.example !== '(Example text not provided)') ? card.example : '';
-                parts.push([card.question || '', card.definition || '', ex].join(US));
-            }
-            return LZString.compressToEncodedURIComponent(parts.join(RS));
-        }
-
-        /**
-         * V2 decoder: inverse of encodeDeckV2.
-         */
-        function decodeDeckV2(encoded) {
-            try {
-                const raw = LZString.decompressFromEncodedURIComponent(encoded);
-                if (!raw) return null;
-                const RS = '\x1E', US = '\x1F';
-                const records = raw.split(RS);
-                const title = records.shift() || 'My Custom Deck';
-                const cards = records.map(rec => {
-                    const [question = '', definition = '', example = ''] = rec.split(US);
-                    return { question, definition, example };
-                }).filter(c => c.question && c.definition);
-                if (cards.length === 0) return null;
-                return { title, cards };
-            } catch (e) {
-                console.error('V2 decode failed:', e);
-                return null;
-            }
-        }
-
-        /**
-         * Legacy (v1) compressor kept for reference/compatibility tooling.
-         * Compact JSON structure, URI-encoded, then Base64.
-         */
-        function compressDeckData(title, cards) {
-            try {
-                if (!title || !cards || !Array.isArray(cards)) {
-                    throw new Error('Invalid input data for compression');
-                }
-                const deckData = {
-                    t: title,
-                    c: cards.map(card => {
-                        if (!card || typeof card.question === 'undefined' || typeof card.definition === 'undefined') {
-                            throw new Error('Invalid card structure');
-                        }
-                        return [
-                            card.question || '',
-                            card.definition || '',
-                            card.example || ''
-                        ];
-                    })
-                };
-                const jsonString = JSON.stringify(deckData);
-                if (jsonString.length > 50000) {
-                    throw new Error('Deck data is too large for URL compression');
-                }
-                const uriEncoded = encodeURIComponent(jsonString);
-                const compressed = btoa(uriEncoded);
-                return compressed;
-            } catch (error) {
-                console.error('Compression failed:', error);
-                return null;
-            }
-        }
-
-        /**
-         * Legacy (v1) decompressor — keeps old `?data=` links working.
-         */
-        function decompressDeckData(compressedData) {
-            try {
-                const uriEncoded = atob(compressedData);
-                const jsonString = decodeURIComponent(uriEncoded);
-                const deckData = JSON.parse(jsonString);
-                const result = {
-                    title: deckData.t,
-                    cards: deckData.c.map(card => ({
-                        question: card[0],
-                        definition: card[1],
-                        example: card[2]
-                    }))
-                };
-                return result;
-            } catch (error) {
-                console.error('Decompression failed:', error);
-                return null;
-            }
-        }
-
-
-        /**
-         * Parses URL parameters to load a deck.
-         * Supports, in priority order:
-         *   1. `?d=`     — v2 LZ-String compressed format (new links)
-         *   2. `?data=`  — v1 Base64-encoded JSON (legacy links keep working)
-         *   3. `?deck=`  — localStorage key (legacy)
-         *   4. `?cards=` / `?title=` — raw legacy format
-         */
-        function parseUrlDeck() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const v2Data = urlParams.get('d');
-            const compressedData = urlParams.get('data');
-            const deckKey = urlParams.get('deck');
-            const cardString = urlParams.get('cards');
-            const titleString = urlParams.get('title');
-            const shuffleParam = urlParams.get('shuffle');
-
-            // V2 compressed data system
-            if (v2Data) {
-                const deckData = decodeDeckV2(v2Data);
-                if (deckData) {
-                    return { title: deckData.title, cards: deckData.cards, error: null, shuffle: shuffleParam === '1' };
-                }
-                return {
-                    title: 'Decompression Error',
-                    cards: [],
-                    error: 'Failed to decompress the flashcard data. The link may be corrupted or truncated.',
-                    shuffle: false
-                };
-            }
-
-            // V1 compressed data system (backward compatible)
-            if (compressedData) {
-                const deckData = decompressDeckData(compressedData);
-                if (deckData) {
-                    return {
-                        title: deckData.title,
-                        cards: deckData.cards,
-                        error: null,
-                        shuffle: shuffleParam === '1'
-                    };
-                } else {
-                    return {
-                        title: 'Decompression Error',
-                        cards: [],
-                        error: 'Failed to decompress the flashcard data. The link may be corrupted.',
-                        shuffle: false
-                    };
-                }
-            }
-
-            // Legacy localStorage-based system (for backward compatibility)
-            if (deckKey) {
-                try {
-                    const storedData = localStorage.getItem(deckKey);
-                    if (storedData) {
-                        const deckData = JSON.parse(storedData);
-                        return {
-                            title: deckData.title,
-                            cards: deckData.cards,
-                            error: null,
-                            shuffle: shuffleParam === '1'
-                        };
-                    } else {
-                        return {
-                            title: 'Deck Not Found',
-                            cards: [],
-                            error: 'The requested deck could not be found. It may have been deleted or the link is invalid.',
-                            shuffle: false
-                        };
-                    }
-                } catch (error) {
-                    return {
-                        title: 'Deck Load Error',
-                        cards: [],
-                        error: 'Failed to load the deck from storage.',
-                        shuffle: false
-                    };
-                }
-            }
-
-            // Legacy URL-based system (for backward compatibility)
-            if (!cardString && !titleString) return null;
-
-            const result = {
-                title: 'Custom URL Flashcards',
-                cards: [],
-                error: null,
-                shuffle: shuffleParam === '1'
-            };
-
-            if (titleString) {
-                result.title = decodeURIComponent(titleString).trim() || "Custom URL Flashcards";
-            }
-
-            if (cardString) {
-                try {
-                    const decodedString = decodeURIComponent(cardString);
-
-                    const parsedCards = decodedString.split(';').map(cardEntry => {
-                        let [mainPart, examplePart = ""] = cardEntry.split('|').map(s => s.trim());
-                        const parts = mainPart.split(':');
-
-                        if (parts.length >= 2) {
-                            const question = parts[0].trim();
-                            const definition = parts.slice(1).join(':').trim();
-                            const example = examplePart || "(Example text not provided)";
-
-                            if (question && definition) {
-                                return {
-                                    question: formatLatinAccents(question),
-                                    definition: formatLatinAccents(definition),
-                                    example: formatLatinAccents(example)
-                                };
-                            }
-                        }
-                        return null;
-                    }).filter(card => card !== null && card.question && card.definition);
-
-                    if (parsedCards.length > 0) {
-                        result.cards = parsedCards;
-                    } else {
-                        result.error = "Malformed or empty 'Term:Definition' pairs in the URL.";
-                    }
-
-                } catch (error) {
-                    result.error = "Error decoding 'cards' parameter due to bad encoding.";
-                    console.error("URL decoding error:", error);
-                }
-            } else {
-                result.error = "Missing 'cards' parameter in the URL.";
-            }
-
-            return result;
-        }
-
-        /**
-         * Loads the deck from URL or falls back to default cards and handles errors.
-         */
-        function initializeDeck() {
-            const urlResult = parseUrlDeck();
-
-            if (urlResult && urlResult.cards.length > 0) {
-                currentDeck = urlResult.cards;
-                deckTitleEl.textContent = urlResult.title;
-                document.title = urlResult.title;
-                deckSubtitleEl.textContent = `${currentDeck.length} card${currentDeck.length === 1 ? '' : 's'}`;
-            } else if (urlResult && urlResult.error) {
-                currentDeck = [{ question: "Error Loading Deck", definition: urlResult.error, example: "Use the Generator below to create a valid link." }];
-                deckTitleEl.textContent = urlResult.title;
-                document.title = urlResult.title;
-                deckSubtitleEl.textContent = '';
-            } else {
-                const defaultTitle = "Create Your First Deck";
-                currentDeck = [{ question: "Welcome to your Flashcards!", definition: "Use the Generator below to create a shareable deck.", example: "Or load a deck using a URL parameter." }];
-                deckTitleEl.textContent = defaultTitle;
-                document.title = defaultTitle;
-                deckSubtitleEl.textContent = '';
-            }
-
-            saveOriginalOrder();
-            shuffleEnabled = urlResult && urlResult.shuffle ? true : false;
-            if (shuffleEnabled && currentDeck.length > 1) {
-                shuffle(currentDeck);
-            }
-            currentCardIndex = 0;
-            renderCard();
-        }
-
-        // --- Flashcard UI Logic ---
-
-        /**
-         * Renders the current card's content and updates navigation state and progress.
-         */
-        function renderCard(slideDirection) {
-            if (currentDeck.length === 0) return;
-
-            const card = currentDeck[currentCardIndex];
-
-            cardFrontText.innerHTML = formatLatinAccents(card.question);
-            cardBackDefEl.innerHTML = formatLatinAccents(card.definition);
-            cardBackExEl.innerHTML = formatLatinAccents(card.example || "(No example text provided)");
-
-            cardCounterEl.textContent = `${currentCardIndex + 1} / ${currentDeck.length}`;
-
-            const progress = (currentCardIndex + 1) / currentDeck.length * 100;
-            progressBarEl.style.width = `${progress.toFixed(2)}%`;
-
-            prevBtn.disabled = currentCardIndex === 0;
-            nextBtn.disabled = currentCardIndex === currentDeck.length - 1;
-
-            if (isFlipped) {
-                flashcardContainer.classList.remove('flipped');
-                isFlipped = false;
-            }
-
-            // Replay the card entrance animation with direction
-            cardInnerEl.classList.remove('card-anim', 'card-slide-right', 'card-slide-left');
-            void cardInnerEl.offsetWidth;
-            if (slideDirection === 'next') {
-                cardInnerEl.classList.add('card-slide-right');
-            } else if (slideDirection === 'prev') {
-                cardInnerEl.classList.add('card-slide-left');
-            } else {
-                cardInnerEl.classList.add('card-anim');
-            }
-        }
-
-        window.flipCard = function() {
-            if (currentDeck.length === 0) return;
-            isFlipped = !isFlipped;
-            flashcardContainer.classList.toggle('flipped');
-        }
-
-        window.nextCard = function() {
-            if (currentCardIndex < currentDeck.length - 1) {
-                currentCardIndex++;
-                renderCard('next');
-            }
-        }
-
-        window.prevCard = function() {
-            if (currentCardIndex > 0) {
-                currentCardIndex--;
-                renderCard('prev');
-            }
-        }
-
-        /**
-         * Switches the structure of all flashcards from term:definition to definition:term.
-         */
-        window.switchTermDefinition = function() {
-            if (currentDeck.length === 0) return;
-
-            currentDeck.forEach(card => {
-                const temp = card.question;
-                card.question = card.definition;
-                card.definition = temp;
-            });
-
-            originalDeck.forEach(card => {
-                const temp = card.question;
-                card.question = card.definition;
-                card.definition = temp;
-            });
-
-            renderCard();
-        }
-
-        // --- URL Generator Functions ---
-
-        /**
-         * Parses generator textarea lines into card objects.
-         */
-        function parseCardInput(cardInput) {
-            const rawLines = cardInput.split('\n')
-                                     .map(line => line.trim())
-                                     .filter(line => line.includes(':'));
-
-            return rawLines.map(line => {
-                let [mainPart, examplePart = ""] = line.split('|').map(s => s.trim());
-                const parts = mainPart.split(':');
-
-                if (parts.length >= 2) {
-                    const question = parts[0].trim();
-                    const definition = parts.slice(1).join(':').trim();
-                    const example = examplePart || "";
-
-                    if (question && definition) {
-                        return {
-                            question: formatLatinAccents(question),
-                            definition: formatLatinAccents(definition),
-                            example: formatLatinAccents(example)
-                        };
-                    }
-                }
-                return null;
-            }).filter(c => c !== null);
-        }
-
-        /**
-         * Updates the URL capacity meter under the generated link.
-         */
-        function updateCapacityMeter(urlLength) {
-            const bar = document.getElementById('url-capacity-bar');
-            const lengthLabel = document.getElementById('url-length-label');
-            const capacityLabel = document.getElementById('url-capacity-label');
-
-            const pct = Math.min(100, (urlLength / URL_SAFE_LIMIT) * 100);
-            bar.style.width = `${pct}%`;
-            bar.className = 'h-full transition-all duration-300 ' +
-                (urlLength > URL_SAFE_LIMIT ? 'bg-red-500' : urlLength > URL_SAFE_LIMIT * 0.75 ? 'bg-[#D97757]' : 'bg-[#D97757]');
-
-            lengthLabel.textContent = `URL length: ${urlLength.toLocaleString()} chars`;
-            capacityLabel.textContent = urlLength > URL_SAFE_LIMIT
-                ? 'Long URL — may not paste cleanly in some apps'
-                : `${Math.round(100 - pct)}% capacity remaining`;
-        }
-
-        /**
-         * Generates the shareable URL based on the text inputs using the
-         * v2 LZ-String format (substantially shorter than the v1 Base64 format,
-         * so far more cards fit before hitting browser URL limits).
-         */
-        window.generateLink = function() {
-            const titleInput = document.getElementById('title-input').value.trim();
-            const cardInput = document.getElementById('card-input').value.trim();
-
-            const processedCards = parseCardInput(cardInput);
-
-            if (processedCards.length === 0) {
-                linkOutputEl.value = "Error: Please enter valid Term:Definition pairs (one per line).";
-                linkOutputContainer.classList.remove('hidden');
-                return;
-            }
-
-            const title = titleInput || "My Custom Deck";
-            const encoded = encodeDeckV2(title, processedCards);
-
-            if (!encoded) {
-                linkOutputEl.value = "Error: Failed to compress deck data.";
-                linkOutputContainer.classList.remove('hidden');
-                return;
-            }
-
-            const newUrl = `${window.location.protocol}//${window.location.host}${window.location.pathname}?d=${encoded}&shuffle=0`;
-            const urlLength = newUrl.length;
-
-            if (urlLength > URL_HARD_LIMIT) {
-                linkOutputEl.value = `Error: Deck is too large even after compression (${urlLength.toLocaleString()} chars). Try splitting it into multiple decks or use Export Deck.`;
-                linkOutputContainer.classList.remove('hidden');
-                updateCapacityMeter(urlLength);
-                return;
-            }
-
-            linkOutputEl.value = newUrl;
-            linkOutputContainer.classList.remove('hidden');
-            updateCapacityMeter(urlLength);
-
-            // Show compression statistics vs the old v1 encoding
-            const legacyEncoded = compressDeckData(title, processedCards.map(c => ({
-                question: c.question, definition: c.definition, example: c.example || '(Example text not provided)'
-            })));
-            const copyMessage = document.getElementById('copy-message');
-            if (legacyEncoded) {
-                const savings = Math.round((1 - encoded.length / legacyEncoded.length) * 100);
-                copyMessage.textContent = `Link generated! ${processedCards.length} cards, ${savings}% shorter than the previous format.`;
-            } else {
-                copyMessage.textContent = `Link generated! ${processedCards.length} cards.`;
-            }
-            copyMessage.classList.remove('opacity-0');
-            setTimeout(() => copyMessage.classList.add('opacity-0'), 5000);
-
-            // Reload the new deck into the app preview
-            currentDeck = processedCards.map(c => ({ ...c }));
-            deckTitleEl.textContent = title;
-            document.title = title;
-            deckSubtitleEl.textContent = `${currentDeck.length} card${currentDeck.length === 1 ? '' : 's'}`;
-            saveOriginalOrder();
-            shuffleEnabled = false;
-            updateShuffleButton();
-            currentCardIndex = 0;
-            renderCard();
-        }
-
-        /**
-         * Live stats under the generator textarea.
-         */
-        function updateInputStats() {
-            const statsEl = document.getElementById('input-stats');
-            const cardInput = document.getElementById('card-input').value.trim();
-            if (!cardInput) {
-                statsEl.textContent = '';
-                return;
-            }
-            const cards = parseCardInput(cardInput);
-            statsEl.textContent = `${cards.length} valid card${cards.length === 1 ? '' : 's'} detected`;
-        }
-
-        /**
-         * Copies the generated link to the clipboard.
-         */
-        window.copyLink = function() {
-            linkOutputEl.select();
-            try {
-                const successful = document.execCommand('copy');
-                if (successful) {
-                    copyMessageEl.textContent = 'Link copied!';
-                    copyMessageEl.classList.remove('opacity-0');
-                    setTimeout(() => copyMessageEl.classList.add('opacity-0'), 2000);
-                }
-            } catch (err) {
-                console.error('Copy failed:', err);
-                linkOutputEl.setSelectionRange(0, 99999);
-            }
-        }
-
-        /**
-         * Exports the current deck data as JSON for backup purposes
-         */
-        window.exportDeck = function() {
-            if (currentDeck.length === 0) {
-                alert('No deck to export!');
-                return;
-            }
-
-            const deckData = {
-                title: deckTitleEl.textContent,
-                cards: currentDeck,
-                timestamp: Date.now(),
-                version: '2.0'
-            };
-
-            const dataStr = JSON.stringify(deckData, null, 2);
-            const dataBlob = new Blob([dataStr], {type: 'application/json'});
-
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(dataBlob);
-            link.download = `flashcards_${deckData.title.replace(/[^a-zA-Z0-9]/g, '_')}.json`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-
-        /**
-         * Imports deck data from a JSON file
-         */
-        window.importDeck = function() {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = '.json';
-
-            input.onchange = function(event) {
-                const file = event.target.files[0];
-                if (!file) return;
-
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    try {
-                        const deckData = JSON.parse(e.target.result);
-
-                        if (!deckData.title || !deckData.cards || !Array.isArray(deckData.cards)) {
-                            alert('Invalid deck file format!');
-                            return;
-                        }
-
-                        currentDeck = deckData.cards;
-                        deckTitleEl.textContent = deckData.title;
-                        document.title = deckData.title;
-                        deckSubtitleEl.textContent = `${currentDeck.length} card${currentDeck.length === 1 ? '' : 's'}`;
-
-                        saveOriginalOrder();
-                        shuffleEnabled = false;
-                        updateShuffleButton();
-                        currentCardIndex = 0;
-                        renderCard();
-
-                        alert(`Successfully imported "${deckData.title}" with ${deckData.cards.length} cards!`);
-                    } catch (error) {
-                        alert('Error reading deck file: ' + error.message);
-                    }
-                };
-                reader.readAsText(file);
-            };
-
-            input.click();
-        }
-
-        /**
-         * Clears all stored flashcard decks from localStorage
-         */
-        window.clearAllStoredDecks = function() {
-            if (confirm('This will delete all stored flashcard decks from your browser. This action cannot be undone. Continue?')) {
-                const keysToRemove = [];
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    if (key && key.startsWith('flashcard_deck_')) {
-                        keysToRemove.push(key);
-                    }
-                }
-
-                keysToRemove.forEach(key => localStorage.removeItem(key));
-                alert(`Cleared ${keysToRemove.length} stored decks.`);
-            }
-        }
-
-
-        // --- Initialization on Load ---
-        document.addEventListener('DOMContentLoaded', () => {
-            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            const storedTheme = localStorage.getItem('theme');
-
-            if (storedTheme === 'dark' || (!storedTheme && prefersDark)) {
-                applyTheme(true);
-            } else {
-                applyTheme(false);
-            }
-
-            initializeDeck();
-            updateShuffleButton();
-
-            document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
-            document.getElementById('card-input').addEventListener('input', updateInputStats);
-
-            document.addEventListener('keydown', (e) => {
-                if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
-                    return;
-                }
-
-                if (e.key === 'ArrowRight') nextCard();
-                else if (e.key === 'ArrowLeft') prevCard();
-                else if (e.key === 's' || e.key === 'S') forceShuffle();
-                else if (e.key === ' ' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    flipCard();
-                }
-            });
-        });
-    </script>
+    <nav class="deck-list" id="deck-list" aria-label="Your decks"></nav>
+    <div class="sidebar-foot">
+      <button class="btn primary block" id="new-deck-btn">New deck</button>
+      <button class="btn ghost block" id="import-btn">Import cards…</button>
+    </div>
+  </aside>
+
+  <!-- ======= main ======= -->
+  <main class="main" id="main">
+
+    <!-- empty state (no deck) -->
+    <section class="stage" id="empty-stage" hidden>
+      <div class="empty-state">
+        <p class="big">A card file that fits in a link.</p>
+        <p class="sub">Type terms and answers, study them four ways, and share the whole deck as a single URL — no accounts, no server. Everything is kept in this browser.</p>
+        <div class="empty-grid">
+          <button class="empty-card" id="empty-new">
+            <span class="t">Start a deck</span>
+            <span class="d">Paste or type cards — one per line, like <code>term : answer</code></span>
+          </button>
+          <button class="empty-card" id="empty-sample">
+            <span class="t">Try a sample</span>
+            <span class="d">Open the world-capitals deck and click through the modes</span>
+          </button>
+          <button class="empty-card" id="empty-import">
+            <span class="t">Import a file</span>
+            <span class="d">Bring in a JSON, CSV, or TSV export from anywhere</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- deck view -->
+    <section id="deck-view" hidden>
+      <div class="deck-header">
+        <div class="deck-title-block">
+          <h1 class="deck-title" id="deck-title">—</h1>
+          <div class="deck-meta" id="deck-meta"></div>
+        </div>
+        <div class="deck-actions">
+          <button class="pill" id="starred-filter" title="Study starred cards only (*)"><i class="dot"></i>Starred only</button>
+          <button class="btn small" id="share-btn">Share link</button>
+          <div class="menu-wrap">
+            <button class="btn small ghost" id="deck-menu-btn" aria-haspopup="true" aria-expanded="false">Deck ▾</button>
+            <div class="menu" id="deck-menu" hidden>
+              <button id="menu-rename">Rename…</button>
+              <button id="menu-reverse">Flip all card sides</button>
+              <button id="menu-duplicate">Duplicate deck</button>
+              <hr>
+              <button id="menu-share-text">Copy as text</button>
+              <button id="menu-export-json">Export .json</button>
+              <button id="menu-export-csv">Export .csv</button>
+              <button id="menu-print">Print sheet</button>
+              <hr>
+              <button class="danger" id="menu-delete">Delete deck…</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <nav class="mode-tabs" id="mode-tabs" aria-label="Study modes">
+        <button class="mode-tab active" data-mode="review">Review</button>
+        <button class="mode-tab" data-mode="learn">Learn</button>
+        <button class="mode-tab" data-mode="quiz">Quiz</button>
+        <button class="mode-tab" data-mode="write">Write</button>
+        <button class="mode-tab" data-mode="cards">Cards <span class="count" id="cards-tab-count"></span></button>
+      </nav>
+
+      <div class="stage">
+
+        <!-- REVIEW -->
+        <div class="card-stage" id="stage-review">
+          <div class="progress-line"><span class="n" id="rev-count">0 / 0</span><div class="track"><i id="rev-progress"></i></div><span id="rev-mastered"></span></div>
+          <div class="card-wrap" id="card-wrap" role="button" tabindex="0" aria-label="Flashcard — activate to flip">
+            <div class="card-inner" id="card-inner">
+              <div class="card-face front">
+                <span class="corner-num" id="card-corner"></span>
+                <button class="star-corner" id="star-btn" title="Star this card (B)" aria-label="Star card">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.7-6.2 3.7 1.6-7L2 9.2l7.1-.6z"/></svg>
+                </button>
+                <div class="face-label" id="front-label">Term</div>
+                <div class="face-text"><p class="front-text" id="card-front-text"></p></div>
+                <div class="flip-hint">click or space — flip</div>
+              </div>
+              <div class="card-face back">
+                <span class="corner-num" id="card-corner-b"></span>
+                <div class="face-label">Answer</div>
+                <div class="face-text">
+                  <p class="back-def" id="card-back-def"></p>
+                  <p class="back-ex" id="card-back-ex"></p>
+                </div>
+                <div class="flip-hint" id="back-hint"></div>
+              </div>
+            </div>
+          </div>
+          <div class="card-controls">
+            <button class="nav-arrow" id="prev-btn" title="Previous (←)" aria-label="Previous card">‹</button>
+            <button class="pill" id="flip-pill">Flip <span class="kbd">space</span></button>
+            <button class="nav-arrow" id="next-btn" title="Next (→)" aria-label="Next card">›</button>
+            <button class="pill" id="shuffle-pill" title="Shuffle (S)"><i class="dot"></i>Shuffle</button>
+            <button class="pill" id="sides-pill" title="Swap front and back of every card (R)">Term ⇄ Answer</button>
+            <button class="pill" id="fs-pill" title="Fullscreen (F)">Fullscreen</button>
+          </div>
+          <div class="stat-strip" id="review-stats"></div>
+        </div>
+
+        <!-- LEARN -->
+        <div class="card-stage" id="stage-learn" hidden>
+          <div class="progress-line"><span class="n" id="learn-count"></span><div class="track"><i id="learn-progress"></i></div><span id="learn-round"></span></div>
+          <div class="card-wrap" id="learn-wrap" role="button" tabindex="0" aria-label="Flashcard — activate to flip">
+            <div class="card-inner">
+              <div class="card-face front">
+                <span class="corner-num" id="learn-corner"></span>
+                <div class="face-label">Recall the answer</div>
+                <div class="face-text"><p class="front-text" id="learn-front"></p></div>
+                <div class="flip-hint">think of the answer, then flip</div>
+              </div>
+              <div class="card-face back">
+                <span class="corner-num" id="learn-corner-b"></span>
+                <div class="face-label">Answer</div>
+                <div class="face-text">
+                  <p class="back-def" id="learn-back"></p>
+                  <p class="back-ex" id="learn-ex"></p>
+                </div>
+                <div class="flip-hint">grade yourself honestly</div>
+              </div>
+            </div>
+          </div>
+          <div class="verdict-row">
+            <button class="verdict learning" id="verdict-learning">Still learning<span class="vk">L — see it again this round</span></button>
+            <button class="verdict known" id="verdict-known">I knew it<span class="vk">K — mark as learned</span></button>
+          </div>
+          <div class="stat-strip" id="learn-stats"></div>
+        </div>
+
+        <!-- QUIZ -->
+        <div class="card-stage" id="stage-quiz" hidden>
+          <div class="progress-line"><span class="n" id="quiz-count"></span><div class="track"><i id="quiz-progress"></i></div><span id="quiz-score"></span></div>
+          <div class="card-wrap" id="quiz-wrap" style="cursor:default;flex:0;min-height:auto;max-height:none;">
+            <div class="card-inner" style="position:static;">
+              <div class="card-face front" style="position:relative;min-height:150px;">
+                <span class="corner-num" id="quiz-corner"></span>
+                <div class="face-label">Which answer matches?</div>
+                <div class="face-text"><p class="front-text" id="quiz-front" style="font-size:clamp(22px,3vw,36px);"></p></div>
+              </div>
+            </div>
+          </div>
+          <div class="quiz-list" id="quiz-list"></div>
+          <div class="quiz-foot"><span id="quiz-msg"></span><button class="btn small" id="quiz-next" hidden>Next ›</button></div>
+        </div>
+
+        <!-- WRITE -->
+        <div class="card-stage" id="stage-write" hidden>
+          <div class="progress-line"><span class="n" id="write-count"></span><div class="track"><i id="write-progress"></i></div><span id="write-score"></span></div>
+          <div class="card-wrap" id="write-wrap" style="cursor:default;flex:0;min-height:auto;max-height:none;">
+            <div class="card-inner" style="position:static;">
+              <div class="card-face front" style="position:relative;min-height:150px;">
+                <span class="corner-num" id="write-corner"></span>
+                <div class="face-label">Write the answer</div>
+                <div class="face-text"><p class="front-text" id="write-front" style="font-size:clamp(22px,3vw,36px);"></p></div>
+              </div>
+            </div>
+          </div>
+          <form class="write-form" id="write-form">
+            <div class="write-input-wrap">
+              <input class="write-input" id="write-input" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="type the answer…">
+            </div>
+            <button type="submit" class="btn primary" id="write-check">Check <span class="kbd">⏎</span></button>
+          </form>
+          <p class="write-feedback" id="write-feedback"></p>
+          <div class="card-controls">
+            <button class="pill" id="write-skip">Skip card →</button>
+            <button class="pill" id="write-reveal">I don’t know</button>
+          </div>
+        </div>
+
+        <!-- CARDS EDITOR -->
+        <div class="editor" id="stage-cards" hidden>
+          <div class="editor-toolbar">
+            <input class="search-input" id="card-search" placeholder="filter cards…" aria-label="Filter cards">
+            <div class="spacer"></div>
+            <button class="btn small" id="star-all-view" title="Show only starred rows">Starred</button>
+            <button class="btn small ghost" id="reset-progress">Reset progress</button>
+          </div>
+          <div class="card-table" id="card-table" role="table" aria-label="Cards in this deck"></div>
+          <div class="add-card-row">
+            <span class="plus">+</span>
+            <input id="add-front" placeholder="front / term" aria-label="New card front">
+            <input id="add-back" placeholder="back / answer" aria-label="New card back">
+            <input id="add-note" placeholder="note (optional)" aria-label="New card note">
+            <button class="btn small primary" id="add-card-btn">Add</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ======= modals ======= -->
+
+<div class="modal-veil" id="modal-veil" hidden>
+  <div class="modal" id="modal-box" role="dialog" aria-modal="true"></div>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<!-- print target -->
+<div class="print-sheet" id="print-sheet" aria-hidden="true"></div>
+
+<script src="app.js"></script>
 </body>
 </html>

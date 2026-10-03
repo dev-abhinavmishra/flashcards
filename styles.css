@@ -1020,6 +1020,7 @@ a { color: var(--blue); }
 .empty-card {
   border: 1px solid var(--rule);
   background: var(--card);
+  color: var(--ink);
   padding: 16px;
   text-align: left;
   box-shadow: var(--shadow-card);

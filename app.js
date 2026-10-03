@@ -1344,6 +1344,11 @@ function wireMenu() {
     const rm = $('row-menu');
     if (rm && !rm.hidden && !rm.contains(e.target) && !e.target.closest('.dr-kebab')) { rm.hidden = true; rowMenuFor = null; }
   });
+  // row-menu is position:fixed — scrolling would detach it from its row, so close instead
+  window.addEventListener('scroll', () => {
+    const rm = $('row-menu');
+    if (rm && !rm.hidden) { rm.hidden = true; rowMenuFor = null; }
+  }, true);
   $('menu-rename').addEventListener('click', () => {
     menu.hidden = true;
     promptModal('Rename deck', 'Deck title', deck().title, v => {
@@ -1534,6 +1539,13 @@ function wireEvents() {
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
     const k = e.key;
+    if (k === 'Escape') {
+      const rm = $('row-menu');
+      const dm = $('deck-menu');
+      if (rm && !rm.hidden) { rm.hidden = true; rowMenuFor = null; }
+      else if (dm && !dm.hidden) { dm.hidden = true; $('deck-menu-btn').setAttribute('aria-expanded', 'false'); }
+      return;
+    }
     if (k === '?') { openShortcuts(); return; }
     if (k === 't' || k === 'T') { applyTheme(document.documentElement.dataset.theme !== 'dark'); return; }
     if (k === '*') { $('starred-filter').click(); return; }

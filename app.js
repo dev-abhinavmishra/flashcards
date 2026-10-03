@@ -380,7 +380,6 @@ function renderAll() {
   els.deckMeta.innerHTML =
     `<span><b>${s.total}</b> card${s.total === 1 ? '' : 's'}</span>` +
     `<span><b>${s.mastered}</b> mastered</span>` +
-    `<span><b>${s.starred}</b> starred</span>` +
     `<span>${relTime(d.lastStudiedAt)}</span>` +
     (d.flipped ? `<span>sides swapped</span>` : '');
   els.cardsTabCount.textContent = `(${s.total})`;
@@ -927,7 +926,6 @@ function renderMeta() {  // refresh header bits without mode re-render
   els.deckMeta.innerHTML =
     `<span><b>${s.total}</b> card${s.total === 1 ? '' : 's'}</span>` +
     `<span><b>${s.mastered}</b> mastered</span>` +
-    `<span><b>${s.starred}</b> starred</span>` +
     `<span>${relTime(d.lastStudiedAt)}</span>` +
     (d.flipped ? `<span>sides swapped</span>` : '');
   els.cardsTabCount.textContent = `(${s.total})`;

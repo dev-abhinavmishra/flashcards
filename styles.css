@@ -289,6 +289,9 @@ a { color: var(--blue); }
   gap: 8px;
 }
 
+.foot-row { display: flex; gap: 8px; }
+.foot-row .btn { flex: 1; }
+
 /* ---------- buttons ---------- */
 
 .btn {
@@ -1209,6 +1212,7 @@ a { color: var(--blue); }
   .sidebar-head { padding: 10px 12px 4px; }
   .library-search { margin: 0 12px 8px; }
   .sidebar-foot { display: flex; gap: 8px; padding: 0 12px 12px; border-top: none; }
+  .sidebar-foot .foot-row { display: contents; }
   .sidebar-foot .btn { flex: 1; }
   .deck-header { padding: 20px 18px 0; }
   .mode-tabs { padding: 14px 18px 0; overflow-x: auto; }

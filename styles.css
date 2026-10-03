@@ -1093,6 +1093,8 @@ a { color: var(--blue); }
   padding: 22px 24px;
 }
 .modal.wide { max-width: 720px; }
+/* the ink border reads as a deliberate outline in light; in dark it glows — soften to a hairline */
+[data-theme="dark"] .modal, [data-theme="dark"] .menu { border-color: var(--rule); }
 
 .modal h3 {
   font-family: var(--font-card);

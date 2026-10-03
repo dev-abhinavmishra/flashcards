@@ -99,7 +99,7 @@ function relTime(ts) {
 
 const norm = s => String(s || '')
   .normalize('NFKD').replace(/[̀-ͯ]/g, '')
-  .toLowerCase().replace(/[^a-z0-9\s]/g, ' ')
+  .toLowerCase().replace(/[^\p{L}\p{N}\s]+/gu, ' ')
   .replace(/\s+/g, ' ').trim();
 
 function levenshtein(a, b) {
@@ -217,7 +217,10 @@ function decompressV1(data) {
 }
 
 function deckFingerprint(title, cards) {
-  return `${title}|${cards.length}|${(cards[0] && cards[0].q) || ''}|${cards.length ? cards[cards.length - 1].a : ''}`;
+  let h = 0;
+  const s = cards.map(c => `${c.q}\x00${c.a}`).join('\x01');
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return `${title}|${cards.length}|${h}`;
 }
 
 /** Import a shared-link deck into the library (deduped), select it. */
@@ -525,7 +528,7 @@ function learnVerdict(known) {
     L.known++;
     L.queue.shift();
   } else {
-    L.missed.push(c.id);
+    if (!L.missed.includes(c.id)) L.missed.push(c.id);
     L.queue.push(L.queue.shift());  // requeue to end
     if (L.passes > L.total * 12) { L.queue = []; }  // safety valve
   }
@@ -582,7 +585,7 @@ function renderQuiz() {
   if (Q.idx >= Q.order.length) { showQuizResults(); return; }
   const c = quizCard(); if (!c) return;
 
-  Q.answered = false;
+  Q.answered = Q.answeredId === c.id;
   $('quiz-count').textContent = `${Q.idx + 1} / ${Q.order.length}`;
   $('quiz-progress').style.width = `${(Q.idx / Q.order.length * 100)}%`;
   $('quiz-score').textContent = `${Q.correct} correct`;
@@ -605,6 +608,7 @@ function renderQuiz() {
     </button>`).join('');
   list.querySelectorAll('.quiz-opt').forEach(b =>
     b.addEventListener('click', () => answerQuiz(b)));
+  if (Q.answered) markQuizAnswered(c);  // restore state after re-render
 }
 
 function answerQuiz(btn) {
@@ -615,13 +619,21 @@ function answerQuiz(btn) {
   const right = backText(c);
   const chosen = btn.dataset.ans;
   const ok = chosen === right;
+  Q.answeredId = c.id;
+  Q.answeredPick = chosen;
   if (ok) { Q.correct++; c.status = 'mastered'; }
   else { c.status = 'learning'; Q.missed.push(c.id); }
   saveStore();
+  markQuizAnswered(c);
+}
 
+function markQuizAnswered(c) {
+  const Q = state.quiz;
+  const right = backText(c);
+  const ok = Q.answeredPick === right;
   $('quiz-list').querySelectorAll('.quiz-opt').forEach(b => {
     if (b.dataset.ans === right) b.classList.add('correct');
-    else if (b === btn) b.classList.add('wrong');
+    else if (b.dataset.ans === Q.answeredPick) b.classList.add('wrong');
     else b.classList.add('dim');
     b.disabled = true;
   });
@@ -686,7 +698,7 @@ function renderWrite() {
   if (W.idx >= W.order.length) { showWriteResults(); return; }
   const c = writeCard(); if (!c) return;
 
-  W.checked = false;
+  W.checked = W.checkedId === c.id;
   $('write-count').textContent = `${W.idx + 1} / ${W.order.length}`;
   $('write-progress').style.width = `${(W.idx / W.order.length * 100)}%`;
   $('write-score').textContent = `${W.correct} right`;
@@ -698,7 +710,30 @@ function renderWrite() {
   input.value = '';
   input.disabled = false;
   $('write-check').textContent = 'Check';
-  setTimeout(() => input.focus(), 30);
+  if (W.checked) restoreWriteChecked();  // restore state after re-render
+  setTimeout(() => { if (!W.checked) input.focus(); }, 30);
+}
+
+function restoreWriteChecked() {
+  const W = state.write;
+  const fb = $('write-feedback');
+  fb.className = W.fbClass || 'write-feedback';
+  fb.innerHTML = W.fbHtml || '';
+  const input = $('write-input');
+  input.value = W.guessVal || '';
+  input.disabled = true;
+  $('write-check').textContent = 'Next ›';
+}
+
+function markWriteChecked(c) {
+  const W = state.write;
+  W.checked = true;
+  W.checkedId = c.id;
+  W.fbClass = $('write-feedback').className;
+  W.fbHtml = $('write-feedback').innerHTML;
+  W.guessVal = $('write-input').value;
+  $('write-input').disabled = true;
+  $('write-check').textContent = 'Next ›';
 }
 
 function checkWrite(reveal = false) {
@@ -717,10 +752,8 @@ function checkWrite(reveal = false) {
     fb.className = 'write-feedback no';
     fb.innerHTML = `The answer: <span class="expected">${esc(expected)}</span>`;
     c.status = 'learning';
-    W.missed.push(c.id);
-    W.checked = true;
-    input.disabled = true;
-    $('write-check').textContent = 'Next ›';
+    if (!W.missed.includes(c.id)) W.missed.push(c.id);
+    markWriteChecked(c);
     saveStore(); renderLibrary(); renderMeta();
     return;
   }
@@ -744,11 +777,9 @@ function checkWrite(reveal = false) {
       : `Answer: <span class="expected">${esc(expected)}</span>`;
     c.status = 'learning';
     if (almost) W.correct++;  // count near-misses as known-ish
-    else W.missed.push(c.id);
+    else if (!W.missed.includes(c.id)) W.missed.push(c.id);
   }
-  W.checked = true;
-  input.disabled = true;
-  $('write-check').textContent = 'Next ›';
+  markWriteChecked(c);
   $('write-score').textContent = `${W.correct} right`;
   saveStore(); renderLibrary(); renderMeta();
 }
@@ -788,9 +819,11 @@ function renderEditor() {
   const d = deck(); if (!d) return;
   const table = $('card-table');
   const q = norm(state.search);
+  const starOnly = $('star-all-view')?.classList.contains('on');
   const rows = d.cards
     .map((c, i) => ({ c, i }))
-    .filter(({ c }) => !q || norm(c.q).includes(q) || norm(c.a).includes(q) || norm(c.ex).includes(q));
+    .filter(({ c }) => (!starOnly || c.starred)
+      && (!q || norm(c.q).includes(q) || norm(c.a).includes(q) || norm(c.ex).includes(q)));
 
   if (!rows.length) {
     table.innerHTML = `<div class="card-row" style="grid-template-columns:1fr"><span class="cell def">${q ? 'No cards match that filter.' : 'No cards yet — add one below.'}</span></div>`;
@@ -897,7 +930,9 @@ function renderMeta() {  // refresh header bits without mode re-render
 function parsePasted(text) {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   const out = [];
-  for (const line of lines) {
+  const headerRe = /^(q|term|front|question|word|prompt)\s*[:,;\t]/i;
+  for (const [li, line] of lines.entries()) {
+    if (li === 0 && headerRe.test(line)) continue;  // skip "q,a,note" style headers
     let note = '';
     let main = line;
     const pipe = line.indexOf('|');
@@ -910,6 +945,48 @@ function parsePasted(text) {
     if (q && a) out.push({ q: diacritics(q), a: diacritics(a), ex: diacritics(note) });
   }
   return out;
+}
+
+function parseCsvRows(text, delim = ',') {
+  const rows = [];
+  let cur = [], field = '', inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQ) {
+      if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQ = false; }
+      else field += ch;
+    } else if (ch === '"') inQ = true;
+    else if (ch === delim) { cur.push(field); field = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      cur.push(field); field = '';
+      if (cur.some(x => x !== '')) rows.push(cur);
+      cur = [];
+    } else field += ch;
+  }
+  cur.push(field);
+  if (cur.some(x => x !== '')) rows.push(cur);
+  return rows;
+}
+
+function csvRowsToCards(rows) {
+  if (!rows.length) return [];
+  const head = rows[0].map(h => norm(h));
+  const qKeys = ['q', 'question', 'term', 'front', 'prompt'];
+  const aKeys = ['a', 'answer', 'definition', 'def', 'back'];
+  const eKeys = ['ex', 'example', 'note', 'notes'];
+  let qi = 0, ai = 1, ei = 2, start = 0;
+  if (qKeys.includes(head[0]) || aKeys.includes(head[1])) {
+    const fq = head.findIndex(h => qKeys.includes(h));
+    const fa = head.findIndex(h => aKeys.includes(h));
+    if (fq > -1) qi = fq;
+    if (fa > -1) ai = fa;
+    ei = head.findIndex(h => eKeys.includes(h));
+    start = 1;
+  }
+  return rows.slice(start)
+    .map(r => ({ q: r[qi] || '', a: r[ai] || '', ex: ei > -1 ? (r[ei] || '') : '' }))
+    .filter(c => c.q && c.a);
 }
 
 function parseJsonCards(obj) {
@@ -965,6 +1042,9 @@ function openImportModal() {
             cards = parseJsonCards(obj);
             t = obj.title || obj.t || f.name.replace(/\.[^.]+$/, '');
           } catch { toast('That file isn’t valid JSON.'); return; }
+        } else if (/\.(csv|tsv)$/i.test(f.name)) {
+          cards = csvRowsToCards(parseCsvRows(body, f.name.toLowerCase().endsWith('.tsv') ? '\t' : ','));
+          t = f.name.replace(/\.[^.]+$/, '');
         } else {
           cards = parsePasted(body);
           t = f.name.replace(/\.[^.]+$/, '');
@@ -1257,17 +1337,21 @@ function wireEvents() {
   // write stage
   $('write-form').addEventListener('submit', e => { e.preventDefault(); checkWrite(false); });
   $('write-reveal').addEventListener('click', () => checkWrite(true));
-  $('write-skip').addEventListener('click', () => { state.write.idx++; renderWrite(); });
+  $('write-skip').addEventListener('click', () => {
+    const W = state.write, c = writeCard();
+    if (c) {
+      if (!W.missed.includes(c.id)) W.missed.push(c.id);
+      c.status = 'learning';
+      saveStore(); renderLibrary(); renderMeta();
+    }
+    W.idx++; renderWrite();
+  });
 
   // editor stage
   $('card-search').addEventListener('input', e => { state.search = e.target.value; renderEditor(); });
   $('star-all-view').addEventListener('click', function () {
     this.classList.toggle('on');
-    const rows = $('card-table').querySelectorAll('.card-row[data-id]');
-    rows.forEach(r => {
-      const c = deck().cards.find(x => x.id === r.dataset.id);
-      r.style.display = this.classList.contains('on') && !c?.starred ? 'none' : '';
-    });
+    renderEditor();
   });
   $('reset-progress').addEventListener('click', () => {
     confirmModal('Reset progress?', 'Every card in this deck goes back to “new”. Stars stay.', 'Reset progress', () => {
@@ -1337,16 +1421,20 @@ function boot() {
   const prefersDark = matchMedia('(prefers-color-scheme: dark)').matches;
   applyTheme(stored ? stored === 'dark' : prefersDark);
 
-  // migrate: old single-file app stored decks as 'flashcard_deck_*'
+  // migrate: old single-file app stored decks as 'flashcard_deck_*'.
+  // Each key is migrated once — deleting the imported deck must not resurrect it.
   try {
+    const migrated = new Set(JSON.parse(localStorage.getItem('cardfile.migratedKeys') || '[]'));
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.startsWith('flashcard_deck_')) {
+      if (key && key.startsWith('flashcard_deck_') && !migrated.has(key)) {
         const obj = JSON.parse(localStorage.getItem(key));
         if (obj && obj.cards) importSharedDeckSilent(obj.title || 'Saved deck', obj.cards.map(c =>
           ({ q: c.question ?? c.q, a: c.definition ?? c.a, ex: c.example ?? c.ex })));
+        migrated.add(key);
       }
     }
+    localStorage.setItem('cardfile.migratedKeys', JSON.stringify([...migrated]));
   } catch {}
 
   function importSharedDeckSilent(title, raw) {

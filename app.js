@@ -1120,6 +1120,7 @@ function exportLibrary() {
   const decks = Object.values(state.decks).map(d => ({
     title: d.title,
     flipped: !!d.flipped,
+    lastStudiedAt: d.lastStudiedAt || 0,
     cards: d.cards.map(c => ({ q: c.q, a: c.a, ex: c.ex, starred: !!c.starred, status: c.status || 'new' })),
   }));
   const stamp = new Date().toISOString().slice(0, 10);
@@ -1150,6 +1151,7 @@ function importLibrary(obj) {
       return nc;
     }));
     d.flipped = !!row.flipped;
+    if (row.lastStudiedAt > 0) d.lastStudiedAt = row.lastStudiedAt;
     added++;
   }
   saveStore(); renderLibrary(); renderMeta();

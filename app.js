@@ -860,7 +860,7 @@ function wireEditorRows(table) {
         const c = deck().cards.find(x => x.id === id);
         if (!c) return;
         const act = btn.dataset.act;
-        if (act === 'star') { c.starred = !c.starred; saveStore(); renderEditor(); }
+        if (act === 'star') { c.starred = !c.starred; saveStore(); renderEditor(); renderLibrary(); renderMeta(); }
         else if (act === 'del') { deck().cards = deck().cards.filter(x => x.id !== id); saveStore(); resetSessions(); renderEditor(); renderLibrary(); renderMeta(); toast('Card deleted'); }
         else if (act === 'edit') editRow(row, c);
       });

@@ -786,7 +786,7 @@ function learnVerdict(known) {
 function showLearnResults() {
   const L = state.learn;
   const pct = L.total ? Math.round(L.known / L.total * 100) : 100;
-  setTimeout(() => celebrateSet(pct), 140);
+  if (!L.celebrated) { L.celebrated = true; setTimeout(() => celebrateSet(pct), 140); }
   const masteredNow = L.known;
   const stillNeed = deck().cards.filter(c => L.missed.includes(c.id) && c.status !== 'mastered').length;
   openModal(`
@@ -904,7 +904,7 @@ function markQuizAnswered(c, fresh) {
 function showQuizResults() {
   const Q = state.quiz;
   const pct = Q.order.length ? Math.round(Q.correct / Q.order.length * 100) : 0;
-  setTimeout(() => celebrateSet(pct), 140);
+  if (!Q.celebrated) { Q.celebrated = true; setTimeout(() => celebrateSet(pct), 140); }
   openModal(`
     <h3>Quiz results</h3>
     <p class="modal-sub">${esc(deck().title)} · ${Q.order.length} questions</p>
@@ -1049,7 +1049,7 @@ function checkWrite(reveal = false) {
 function showWriteResults() {
   const W = state.write;
   const pct = W.order.length ? Math.round(W.correct / W.order.length * 100) : 0;
-  setTimeout(() => celebrateSet(pct), 140);
+  if (!W.celebrated) { W.celebrated = true; setTimeout(() => celebrateSet(pct), 140); }
   openModal(`
     <h3>Writing results</h3>
     <p class="modal-sub">${esc(deck().title)} · ${W.order.length} cards</p>

@@ -527,7 +527,6 @@ a { color: var(--blue); }
   min-height: 340px;
   max-height: 520px;
   cursor: pointer;
-  perspective: 1600px;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -535,9 +534,11 @@ a { color: var(--blue); }
   position: relative;
   flex: 1;
   transform-style: preserve-3d;
-  transition: transform .5s cubic-bezier(.3, .8, .3, 1);
+  transition: transform .46s cubic-bezier(.22, .9, .28, 1);
 }
 .card-wrap.flipped .card-inner { transform: rotateY(180deg); }
+/* while a WAAPI flip is in flight the card is 'lifted' — deepen the shadow */
+.card-inner.is-flipping .card-face { box-shadow: var(--shadow-pop); }
 
 .card-face {
   position: absolute;
@@ -551,6 +552,7 @@ a { color: var(--blue); }
   border: 1px solid var(--rule);
   border-top: none;
   box-shadow: var(--shadow-card);
+  transition: box-shadow .45s ease;
   display: flex;
   flex-direction: column;
   padding: 48px 56px 44px;
@@ -1292,10 +1294,6 @@ a { color: var(--blue); }
   to   { opacity: 1; transform: translateY(0) rotate(0); }
 }
 .card-wrap.deal { animation: cardIn .4s cubic-bezier(.22, 1, .36, 1); }
-@keyframes slideR { from { opacity: 0; transform: translateX(36px); } to { opacity: 1; transform: none; } }
-@keyframes slideL { from { opacity: 0; transform: translateX(-36px); } to { opacity: 1; transform: none; } }
-.card-wrap.from-right { animation: slideR .3s cubic-bezier(.22, 1, .36, 1); }
-.card-wrap.from-left { animation: slideL .3s cubic-bezier(.22, 1, .36, 1); }
 
 /* subtle entry + judgement motion for quiz / write / mode switches */
 .card-stage { animation: stageIn .28s cubic-bezier(.22, 1, .36, 1); }

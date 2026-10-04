@@ -119,6 +119,78 @@ function levenshtein(a, b) {
   return prev[n];
 }
 
+/* ---------------- card motion ---------------- */
+
+const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const cardMotion = { busy: false, pending: null };
+
+// Directional card swap: the current card flicks off in the direction of
+// travel (dir 1 = exits right, -1 = exits left) and the next card slides
+// in from the opposite side. swap() runs while the card is off-screen.
+// Rapid presses queue the latest intent instead of piling up.
+function slideCard(wrap, dir, swap) {
+  if (REDUCED_MOTION || !wrap) { swap(); return; }
+  if (cardMotion.busy) { cardMotion.pending = { wrap, dir, swap }; return; }
+  cardMotion.busy = true;
+  const finish = () => {
+    cardMotion.busy = false;
+    const p = cardMotion.pending; cardMotion.pending = null;
+    if (p) slideCard(p.wrap, p.dir, p.swap);
+  };
+  const exit = wrap.animate([
+    { transform: 'translateX(0) translateY(0) rotate(0deg)', opacity: 1 },
+    { transform: `translateX(${dir * 9}%) translateY(-4px) rotate(${dir * 1.5}deg)`, opacity: .9, offset: .28 },
+    { transform: `translateX(${dir * 64}%) translateY(16px) rotate(${dir * 5}deg)`, opacity: 0 },
+  ], { duration: 240, easing: 'cubic-bezier(.55,.06,.68,.19)', fill: 'forwards' });
+  exit.finished.catch(() => {}).then(() => {
+    exit.cancel();
+    swap();
+    const enter = wrap.animate([
+      { transform: `translateX(${-dir * 64}%) translateY(-10px) rotate(${-dir * 5}deg)`, opacity: 0 },
+      { transform: `translateX(${-dir * 9}%) translateY(-2px) rotate(${-dir * 1.5}deg)`, opacity: .95, offset: .72 },
+      { transform: 'translateX(0) translateY(0) rotate(0deg)', opacity: 1 },
+    ], { duration: 380, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'forwards' });
+    enter.finished.catch(() => {}).then(() => { enter.cancel(); finish(); });
+  });
+}
+
+// A real flip: the card rises toward the viewer (translateZ under the
+// wrap's perspective), tips slightly edge-on, and settles on the new face.
+// The .flipped class is the state source of truth; WAAPI draws the arc.
+function flipCardEl(wrap, on) {
+  if (!wrap) return;
+  const inner = wrap.firstElementChild;
+  const was = wrap.classList.contains('flipped');
+  const to = on === undefined ? !was : !!on;
+  if (was === to) return;
+  wrap.classList.toggle('flipped', to);
+  if (REDUCED_MOTION || !inner) return;
+  const from = was ? 180 : 0, deg = to ? 180 : 0;
+  inner.style.transition = 'none';
+  inner.getAnimations().forEach(a => a.cancel());
+  wrap.classList.add('is-flipping');
+  const anim = inner.animate([
+    { transform: `rotateY(${from}deg) translateZ(0)`, offset: 0 },
+    { transform: `rotateY(${from + (deg - from) * .5}deg) rotateX(6deg) translateZ(64px)`, offset: .5 },
+    { transform: `rotateY(${deg}deg) translateZ(0)`, offset: 1 },
+  ], { duration: 520, easing: 'cubic-bezier(.24,.9,.3,1)', fill: 'forwards' });
+  anim.finished.catch(() => {}).then(() => {
+    anim.cancel();
+    inner.style.transition = '';
+    wrap.classList.remove('is-flipping');
+  });
+}
+
+// Back to the front face with no animation — used while the card is
+// off-screen mid-swap, so the entering card never arrives spun around.
+function unflipNow(wrap) {
+  if (!wrap) return;
+  const inner = wrap.firstElementChild;
+  if (inner) { inner.style.transition = 'none'; inner.getAnimations().forEach(a => a.cancel()); }
+  wrap.classList.remove('flipped', 'is-flipping');
+  if (inner) { void inner.offsetWidth; inner.style.transition = ''; }
+}
+
 /* ---------------- dom ---------------- */
 
 const $ = id => document.getElementById(id);
@@ -487,7 +559,7 @@ function reviewCard() {
   return c || null;
 }
 
-function renderReview(dir) {
+function renderReview(anim) {
   const d = deck();
   if (!d) return;
 
@@ -527,13 +599,11 @@ function renderReview(dir) {
   $('shuffle-pill').classList.toggle('on', state.review.shuffled);
   $('sides-pill').classList.toggle('on', d.flipped);
 
-  if (state.review.flipped) { wrap.classList.remove('flipped'); state.review.flipped = false; }
+  if (state.review.flipped) { unflipNow(wrap); state.review.flipped = false; }
 
-  wrap.classList.remove('deal', 'from-right', 'from-left');
+  wrap.classList.remove('deal');
   void wrap.offsetWidth;
-  if (dir === 'next') wrap.classList.add('from-right');
-  else if (dir === 'prev') wrap.classList.add('from-left');
-  else wrap.classList.add('deal');
+  if (anim !== 'slide') wrap.classList.add('deal');
 
   $('review-stats').innerHTML = statStripHTML(d);
 }
@@ -545,7 +615,7 @@ function learnCard() {
   return d ? d.cards.find(c => c.id === state.learn.queue[0]) || null : null;
 }
 
-function renderLearn() {
+function renderLearn(anim) {
   const d = deck(); if (!d) return;
   const L = state.learn;
   const wrap = $('learn-wrap');
@@ -559,7 +629,7 @@ function renderLearn() {
     $('learn-front').textContent = state.starredOnly && d.cards.length ? 'No starred cards' : 'Nothing to study';
     $('learn-back').textContent = emptyStudySet(state.starredOnly && d.cards.length ? 'No starred cards' : '');
     $('learn-ex').textContent = '';
-    wrap.classList.remove('flipped');
+    unflipNow(wrap);
     $('learn-stats').innerHTML = statStripHTML(d);
     return;
   }
@@ -578,8 +648,9 @@ function renderLearn() {
   $('learn-front').textContent = frontText(c);
   $('learn-back').textContent = backText(c);
   $('learn-ex').textContent = c.ex || '';
-  wrap.classList.remove('flipped');
-  wrap.classList.remove('deal'); void wrap.offsetWidth; wrap.classList.add('deal');
+  unflipNow(wrap);
+  wrap.classList.remove('deal'); void wrap.offsetWidth;
+  if (anim !== 'slide') wrap.classList.add('deal');
 
   const s = deckStats(d);
   $('learn-stats').innerHTML = statStripHTML(d);
@@ -587,18 +658,22 @@ function renderLearn() {
 
 function learnVerdict(known) {
   const c = learnCard(); if (!c) return;
-  const L = state.learn;
-  c.status = known ? 'mastered' : 'learning';
-  L.passes++;
-  if (known) {
-    L.known++;
-    L.queue.shift();
-  } else {
-    if (!L.missed.includes(c.id)) L.missed.push(c.id);
-    L.queue.push(L.queue.shift());  // requeue to end
-    if (L.passes > L.total * 12) { L.queue = []; }  // safety valve
-  }
-  saveStore(); renderLearn(); renderLibrary(); renderMeta();
+  // a card you knew flicks away to the right; one you're still learning
+  // slides back into the pile on the left
+  slideCard($('learn-wrap'), known ? 1 : -1, () => {
+    const L = state.learn;
+    c.status = known ? 'mastered' : 'learning';
+    L.passes++;
+    if (known) {
+      L.known++;
+      L.queue.shift();
+    } else {
+      if (!L.missed.includes(c.id)) L.missed.push(c.id);
+      L.queue.push(L.queue.shift());  // requeue to end
+      if (L.passes > L.total * 12) { L.queue = []; }  // safety valve
+    }
+    saveStore(); renderLearn('slide'); renderLibrary(); renderMeta();
+  });
 }
 
 function showLearnResults() {
@@ -632,7 +707,7 @@ function quizCard() {
   return d ? d.cards.find(c => c.id === state.quiz.order[state.quiz.idx]) || null : null;
 }
 
-function renderQuiz() {
+function renderQuiz(anim) {
   const d = deck(); if (!d) return;
   const Q = state.quiz;
 
@@ -668,7 +743,8 @@ function renderQuiz() {
   shuffleInPlace(opts);
 
   const qw = $('quiz-wrap');
-  qw.classList.remove('deal'); void qw.offsetWidth; qw.classList.add('deal');
+  qw.classList.remove('deal'); void qw.offsetWidth;
+  if (anim !== 'slide') qw.classList.add('deal');
   const list = $('quiz-list');
   list.innerHTML = opts.map((o, i) => `
     <button class="quiz-opt" style="--i:${i}" data-ans="${esc(o)}">
@@ -748,7 +824,7 @@ function writeCard() {
   return d ? d.cards.find(c => c.id === state.write.order[state.write.idx]) || null : null;
 }
 
-function renderWrite() {
+function renderWrite(anim) {
   const d = deck(); if (!d) return;
   const W = state.write;
 
@@ -780,7 +856,8 @@ function renderWrite() {
   $('write-check').textContent = 'Check';
   if (W.checked) restoreWriteChecked();  // restore state after re-render
   const ww = $('write-wrap');
-  ww.classList.remove('deal'); void ww.offsetWidth; ww.classList.add('deal');
+  ww.classList.remove('deal'); void ww.offsetWidth;
+  if (anim !== 'slide') ww.classList.add('deal');
   setTimeout(() => { if (!W.checked) input.focus(); }, 30);
 }
 
@@ -810,8 +887,7 @@ function checkWrite(reveal = false) {
   const W = state.write;
   const c = writeCard(); if (!c) return;
   if (W.checked) {  // second press = advance
-    W.idx++;
-    renderWrite();
+    slideCard($('write-wrap'), 1, () => { W.idx++; renderWrite('slide'); });
     return;
   }
   const expected = backText(c);
@@ -1449,8 +1525,8 @@ function wireEvents() {
   $('card-wrap').addEventListener('click', e => {
     if (e.target.closest('.star-corner')) return;
     const wrap = $('card-wrap');
-    state.review.flipped = !state.review.flipped;
-    wrap.classList.toggle('flipped', state.review.flipped);
+    state.review.flipped = !wrap.classList.contains('flipped');
+    flipCardEl(wrap, state.review.flipped);
   });
   $('card-wrap').addEventListener('keydown', e => {
     if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); $('card-wrap').click(); }
@@ -1463,10 +1539,10 @@ function wireEvents() {
   });
   $('flip-pill').addEventListener('click', () => $('card-wrap').click());
   $('prev-btn').addEventListener('click', () => {
-    if (state.review.idx > 0) { state.review.idx--; renderReview('prev'); }
+    if (state.review.idx > 0) slideCard($('card-wrap'), -1, () => { state.review.idx--; renderReview('slide'); });
   });
   $('next-btn').addEventListener('click', () => {
-    if (state.review.idx < state.review.order.length - 1) { state.review.idx++; renderReview('next'); }
+    if (state.review.idx < state.review.order.length - 1) slideCard($('card-wrap'), 1, () => { state.review.idx++; renderReview('slide'); });
   });
   $('shuffle-pill').addEventListener('click', () => {
     const R = state.review;
@@ -1487,27 +1563,31 @@ function wireEvents() {
   $('fs-pill').addEventListener('click', toggleFullscreen);
 
   // learn stage
-  $('learn-wrap').addEventListener('click', () => $('learn-wrap').classList.toggle('flipped'));
+  $('learn-wrap').addEventListener('click', () => flipCardEl($('learn-wrap')));
   $('learn-wrap').addEventListener('keydown', e => {
-    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); $('learn-wrap').classList.toggle('flipped'); }
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flipCardEl($('learn-wrap')); }
   });
   $('verdict-known').addEventListener('click', () => learnVerdict(true));
   $('verdict-learning').addEventListener('click', () => learnVerdict(false));
 
   // quiz stage
-  $('quiz-next').addEventListener('click', () => { state.quiz.idx++; renderQuiz(); });
+  $('quiz-next').addEventListener('click', () => {
+    slideCard($('quiz-wrap'), 1, () => { state.quiz.idx++; renderQuiz('slide'); });
+  });
 
   // write stage
   $('write-form').addEventListener('submit', e => { e.preventDefault(); checkWrite(false); });
   $('write-reveal').addEventListener('click', () => checkWrite(true));
   $('write-skip').addEventListener('click', () => {
     const W = state.write, c = writeCard();
-    if (c) {
-      if (!W.missed.includes(c.id)) W.missed.push(c.id);
-      c.status = 'learning';
-      saveStore(); renderLibrary(); renderMeta();
-    }
-    W.idx++; renderWrite();
+    slideCard($('write-wrap'), 1, () => {
+      if (c) {
+        if (!W.missed.includes(c.id)) W.missed.push(c.id);
+        c.status = 'learning';
+        saveStore(); renderLibrary(); renderMeta();
+      }
+      W.idx++; renderWrite('slide');
+    });
   });
 
   // editor stage
@@ -1563,7 +1643,7 @@ function wireEvents() {
       else if (k === 'r' || k === 'R') { $('sides-pill').click(); }
       else if (k === 'f' || k === 'F') { toggleFullscreen(); }
     } else if (state.mode === 'learn') {
-      if (k === ' ' || k === 'Enter') { e.preventDefault(); $('learn-wrap').classList.toggle('flipped'); }
+      if (k === ' ' || k === 'Enter') { e.preventDefault(); flipCardEl($('learn-wrap')); }
       else if (k === 'k' || k === 'K') learnVerdict(true);
       else if (k === 'l' || k === 'L') learnVerdict(false);
       else if (k === 'f' || k === 'F') toggleFullscreen();

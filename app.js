@@ -119,6 +119,161 @@ function levenshtein(a, b) {
   return prev[n];
 }
 
+/* ---------------- card motion ---------------- */
+
+const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const cardMotion = { busy: false, pending: null, gen: 0 };
+
+// Directional card swap: the current card flicks off in the direction of
+// travel (dir 1 = exits right, -1 = exits left) and the next card slides
+// in from the opposite side. swap() runs while the card is off-screen.
+// Rapid presses queue the latest intent instead of piling up.
+function slideCard(wrap, dir, swap) {
+  if (REDUCED_MOTION || !wrap) { swap(); return; }
+  if (cardMotion.busy) { cardMotion.pending = { wrap, dir, swap }; return; }
+  cardMotion.busy = true;
+  // the deck may change while the exit flies — a stale swap must not
+  // reach into the new session's queues
+  const gen = cardMotion.gen;
+  const finish = () => {
+    cardMotion.busy = false;
+    const p = cardMotion.pending; cardMotion.pending = null;
+    if (p) slideCard(p.wrap, p.dir, p.swap);
+  };
+  const exit = wrap.animate([
+    { transform: 'translateX(0) translateY(0) rotate(0deg)', opacity: 1 },
+    { transform: `translateX(${dir * 9}%) translateY(-4px) rotate(${dir * 1.5}deg)`, opacity: .9, offset: .28 },
+    { transform: `translateX(${dir * 64}%) translateY(16px) rotate(${dir * 5}deg)`, opacity: 0 },
+  ], { duration: 240, easing: 'cubic-bezier(.55,.06,.68,.19)', fill: 'forwards' });
+  exit.finished.catch(() => {}).then(() => {
+    exit.cancel();
+    if (gen !== cardMotion.gen) { finish(); return; }
+    swap();
+    const enter = wrap.animate([
+      { transform: `translateX(${-dir * 64}%) translateY(-10px) rotate(${-dir * 5}deg)`, opacity: 0 },
+      { transform: `translateX(${-dir * 9}%) translateY(-2px) rotate(${-dir * 1.5}deg)`, opacity: .95, offset: .72 },
+      { transform: 'translateX(0) translateY(0) rotate(0deg)', opacity: 1 },
+    ], { duration: 380, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'forwards' });
+    enter.finished.catch(() => {}).then(() => { enter.cancel(); finish(); });
+  });
+}
+
+// A real flip: the card rises toward the viewer (translateZ under the
+// wrap's perspective), tips slightly edge-on, and settles on the new face.
+// The .flipped class is the state source of truth; WAAPI draws the arc.
+function flipCardEl(wrap, on) {
+  if (!wrap) return;
+  const inner = wrap.firstElementChild;
+  const was = wrap.classList.contains('flipped');
+  const to = on === undefined ? !was : !!on;
+  if (was === to) return;
+  wrap.classList.toggle('flipped', to);
+  if (REDUCED_MOTION || !inner) return;
+  const from = was ? 180 : 0, deg = to ? 180 : 0;
+  inner.style.transition = 'none';
+  inner.getAnimations().forEach(a => a.cancel());
+  wrap.classList.add('is-flipping');
+  const anim = inner.animate([
+    { transform: `rotateY(${from}deg) translateZ(0)`, offset: 0 },
+    { transform: `rotateY(${from + (deg - from) * .5}deg) rotateX(6deg) translateZ(64px)`, offset: .5 },
+    { transform: `rotateY(${deg}deg) translateZ(0)`, offset: 1 },
+  ], { duration: 520, easing: 'cubic-bezier(.24,.9,.3,1)', fill: 'forwards' });
+  anim.finished.catch(() => {}).then(() => {
+    anim.cancel();
+    inner.style.transition = '';
+    wrap.classList.remove('is-flipping');
+  });
+}
+
+// Back to the front face with no animation — used while the card is
+// off-screen mid-swap, so the entering card never arrives spun around.
+function unflipNow(wrap) {
+  if (!wrap) return;
+  const inner = wrap.firstElementChild;
+  if (inner) { inner.style.transition = 'none'; inner.getAnimations().forEach(a => a.cancel()); }
+  wrap.classList.remove('flipped', 'is-flipping');
+  if (inner) { void inner.offsetWidth; inner.style.transition = ''; }
+}
+
+/* ---------------- confetti ---------------- */
+
+// A small paper-bit burst drawn on a temporary canvas over the page —
+// palette comes from the live theme tokens, so it matches light/dark.
+function spawnConfetti({ x, y, count = 90, power = 1, life = 100 }) {
+  if (REDUCED_MOTION) return;
+  const cv = document.createElement('canvas');
+  cv.className = 'confetti-layer';
+  document.body.appendChild(cv);
+  const ctx = cv.getContext('2d');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = innerWidth * dpr;
+  cv.height = innerHeight * dpr;
+  ctx.scale(dpr, dpr);
+  const css = getComputedStyle(document.documentElement);
+  const palette = ['--blue', '--red', '--yellow', '--green', '--ink-2']
+    .map(k => css.getPropertyValue(k).trim()).filter(Boolean);
+  const ox = x * innerWidth, oy = y * innerHeight;
+  const parts = Array.from({ length: count }, () => {
+    const a = -Math.PI / 2 + (Math.random() - .5) * 2;   // upward cone
+    const v = (4.5 + Math.random() * 7.5) * power;
+    return {
+      x: ox, y: oy,
+      vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+      w: 4 + Math.random() * 5, h: 3 + Math.random() * 4,
+      rot: Math.random() * Math.PI * 2, vr: (Math.random() - .5) * .32,
+      c: palette[(Math.random() * palette.length) | 0] || '#1f47b8',
+      t: 0, ttl: life * (.75 + Math.random() * .5),
+      circle: Math.random() < .22,
+    };
+  });
+  let raf = 0;
+  const step = () => {
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    let alive = false;
+    for (const p of parts) {
+      if (p.t > p.ttl) continue;
+      alive = true;
+      p.t++;
+      p.vy += .16 * power;         // gravity
+      p.vx *= .985; p.vy *= .99;   // air drag
+      p.x += p.vx; p.y += p.vy;
+      p.rot += p.vr;
+      const fade = p.t > p.ttl - 22 ? (p.ttl - p.t) / 22 : 1;
+      ctx.save();
+      ctx.globalAlpha = Math.max(fade, 0);
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.c;
+      if (p.circle) { ctx.beginPath(); ctx.arc(0, 0, p.w / 2.6, 0, Math.PI * 2); ctx.fill(); }
+      else ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    }
+    if (alive) raf = requestAnimationFrame(step);
+    else cv.remove();
+  };
+  raf = requestAnimationFrame(step);
+  setTimeout(() => { cancelAnimationFrame(raf); cv.remove(); }, 4500);  // safety for hidden tabs
+}
+
+// Finishing a set earns a real burst; a perfect score earns a second one.
+function celebrateSet(pct) {
+  spawnConfetti({ x: .5, y: .34, count: pct === 100 ? 120 : 90 });
+  if (pct === 100) setTimeout(() => spawnConfetti({ x: .5, y: .4, count: 60, power: .8 }), 320);
+}
+
+// A small sprinkle from an element — the correct-answer moment.
+function sprinkleFrom(el) {
+  if (!el || REDUCED_MOTION) return;
+  const r = el.getBoundingClientRect();
+  spawnConfetti({
+    x: (r.left + r.width / 2) / innerWidth,
+    y: (r.top + r.height / 2) / innerHeight,
+    count: 12, power: .42, life: 46,
+  });
+}
+
+const CHECK_SVG = `<svg class="opt-check" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.6l3.1 3L13 4.6"/></svg>`;
+
 /* ---------------- dom ---------------- */
 
 const $ = id => document.getElementById(id);
@@ -413,6 +568,9 @@ function resetSessions() {
   state.quiz = { order: shuffleInPlace([...order]), idx: 0, correct: 0, answered: false, missed: [] };
   state.write = { order: shuffleInPlace([...order]), idx: 0, correct: 0, checked: false, missed: [] };
   state.search = '';
+  state.statPrev = null;   // strip bumps only compare within this deck
+  cardMotion.gen++;        // any in-flight slide belongs to the old session
+  cardMotion.pending = null;
   const s = $('card-search'); if (s) s.value = '';
 }
 
@@ -449,6 +607,7 @@ function renderAll() {
 
   document.querySelectorAll('.mode-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.mode === state.mode));
+  positionTabInk();
 
   for (const m of ['review', 'learn', 'quiz', 'write', 'cards'])
     $(`stage-${m}`).hidden = state.mode !== m;
@@ -462,11 +621,31 @@ function renderAll() {
 
 function statStripHTML(d) {
   const s = deckStats(d);
+  const prev = state.statPrev || {};
+  state.statPrev = { mastered: s.mastered, learning: s.learning, starred: s.starred };
+  // a number that just rose pops briefly in its own color
+  const bump = (k, c) => (prev[k] !== undefined && s[k] > prev[k]
+    ? ` bump" style="--bump-c:var(--${c})` : '');
   return `
     <div class="stat"><div class="sv">${s.total}</div><div class="sl">cards</div></div>
-    <div class="stat"><div class="sv"><span class="hl">${s.mastered}</span></div><div class="sl">mastered</div></div>
-    <div class="stat"><div class="sv">${s.learning}</div><div class="sl">learning</div></div>
-    <div class="stat starred"><div class="sv">${s.starred}</div><div class="sl">starred</div></div>`;
+    <div class="stat"><div class="sv${bump('mastered', 'green')}"><span class="hl">${s.mastered}</span></div><div class="sl">mastered</div></div>
+    <div class="stat"><div class="sv${bump('learning', 'red')}">${s.learning}</div><div class="sl">learning</div></div>
+    <div class="stat starred"><div class="sv${bump('starred', 'yellow')}">${s.starred}</div><div class="sl">starred</div></div>`;
+}
+
+let inkPlaced = false;
+function positionTabInk() {
+  const ink = $('tab-ink');
+  const tab = document.querySelector('.mode-tab.active');
+  if (!ink || !tab) return;
+  // first placement is instant — only later moves should visibly slide.
+  // while the tab row is hidden (welcome screen) width is 0 — don't count that.
+  const placed = inkPlaced && tab.offsetWidth > 0;
+  if (!placed) ink.style.transition = 'none';
+  ink.style.left = `${tab.offsetLeft}px`;
+  ink.style.width = `${tab.offsetWidth}px`;
+  if (!placed) { void ink.offsetWidth; ink.style.transition = ''; }
+  if (tab.offsetWidth > 0) inkPlaced = true;
 }
 
 function frontText(c) { return deck().flipped ? c.a : c.q; }
@@ -487,7 +666,7 @@ function reviewCard() {
   return c || null;
 }
 
-function renderReview(dir) {
+function renderReview(anim) {
   const d = deck();
   if (!d) return;
 
@@ -527,13 +706,11 @@ function renderReview(dir) {
   $('shuffle-pill').classList.toggle('on', state.review.shuffled);
   $('sides-pill').classList.toggle('on', d.flipped);
 
-  if (state.review.flipped) { wrap.classList.remove('flipped'); state.review.flipped = false; }
+  if (state.review.flipped) { unflipNow(wrap); state.review.flipped = false; }
 
-  wrap.classList.remove('deal', 'from-right', 'from-left');
+  wrap.classList.remove('deal');
   void wrap.offsetWidth;
-  if (dir === 'next') wrap.classList.add('from-right');
-  else if (dir === 'prev') wrap.classList.add('from-left');
-  else wrap.classList.add('deal');
+  if (anim !== 'slide') wrap.classList.add('deal');
 
   $('review-stats').innerHTML = statStripHTML(d);
 }
@@ -545,7 +722,7 @@ function learnCard() {
   return d ? d.cards.find(c => c.id === state.learn.queue[0]) || null : null;
 }
 
-function renderLearn() {
+function renderLearn(anim) {
   const d = deck(); if (!d) return;
   const L = state.learn;
   const wrap = $('learn-wrap');
@@ -559,7 +736,7 @@ function renderLearn() {
     $('learn-front').textContent = state.starredOnly && d.cards.length ? 'No starred cards' : 'Nothing to study';
     $('learn-back').textContent = emptyStudySet(state.starredOnly && d.cards.length ? 'No starred cards' : '');
     $('learn-ex').textContent = '';
-    wrap.classList.remove('flipped');
+    unflipNow(wrap);
     $('learn-stats').innerHTML = statStripHTML(d);
     return;
   }
@@ -578,8 +755,9 @@ function renderLearn() {
   $('learn-front').textContent = frontText(c);
   $('learn-back').textContent = backText(c);
   $('learn-ex').textContent = c.ex || '';
-  wrap.classList.remove('flipped');
-  wrap.classList.remove('deal'); void wrap.offsetWidth; wrap.classList.add('deal');
+  unflipNow(wrap);
+  wrap.classList.remove('deal'); void wrap.offsetWidth;
+  if (anim !== 'slide') wrap.classList.add('deal');
 
   const s = deckStats(d);
   $('learn-stats').innerHTML = statStripHTML(d);
@@ -587,22 +765,28 @@ function renderLearn() {
 
 function learnVerdict(known) {
   const c = learnCard(); if (!c) return;
-  const L = state.learn;
-  c.status = known ? 'mastered' : 'learning';
-  L.passes++;
-  if (known) {
-    L.known++;
-    L.queue.shift();
-  } else {
-    if (!L.missed.includes(c.id)) L.missed.push(c.id);
-    L.queue.push(L.queue.shift());  // requeue to end
-    if (L.passes > L.total * 12) { L.queue = []; }  // safety valve
-  }
-  saveStore(); renderLearn(); renderLibrary(); renderMeta();
+  // a card you knew flicks away to the right; one you're still learning
+  // slides back into the pile on the left
+  slideCard($('learn-wrap'), known ? 1 : -1, () => {
+    const L = state.learn;
+    c.status = known ? 'mastered' : 'learning';
+    L.passes++;
+    if (known) {
+      L.known++;
+      L.queue.shift();
+    } else {
+      if (!L.missed.includes(c.id)) L.missed.push(c.id);
+      L.queue.push(L.queue.shift());  // requeue to end
+      if (L.passes > L.total * 12) { L.queue = []; }  // safety valve
+    }
+    saveStore(); renderLearn('slide'); renderLibrary(); renderMeta();
+  });
 }
 
 function showLearnResults() {
   const L = state.learn;
+  const pct = L.total ? Math.round(L.known / L.total * 100) : 100;
+  if (!L.celebrated) { L.celebrated = true; setTimeout(() => celebrateSet(pct), 140); }
   const masteredNow = L.known;
   const stillNeed = deck().cards.filter(c => L.missed.includes(c.id) && c.status !== 'mastered').length;
   openModal(`
@@ -632,7 +816,7 @@ function quizCard() {
   return d ? d.cards.find(c => c.id === state.quiz.order[state.quiz.idx]) || null : null;
 }
 
-function renderQuiz() {
+function renderQuiz(anim) {
   const d = deck(); if (!d) return;
   const Q = state.quiz;
 
@@ -668,7 +852,8 @@ function renderQuiz() {
   shuffleInPlace(opts);
 
   const qw = $('quiz-wrap');
-  qw.classList.remove('deal'); void qw.offsetWidth; qw.classList.add('deal');
+  qw.classList.remove('deal'); void qw.offsetWidth;
+  if (anim !== 'slide') qw.classList.add('deal');
   const list = $('quiz-list');
   list.innerHTML = opts.map((o, i) => `
     <button class="quiz-opt" style="--i:${i}" data-ans="${esc(o)}">
@@ -692,15 +877,19 @@ function answerQuiz(btn) {
   if (ok) { Q.correct++; c.status = 'mastered'; }
   else { c.status = 'learning'; Q.missed.push(c.id); }
   saveStore();
-  markQuizAnswered(c);
+  markQuizAnswered(c, true);
 }
 
-function markQuizAnswered(c) {
+function markQuizAnswered(c, fresh) {
   const Q = state.quiz;
   const right = backText(c);
   const ok = Q.answeredPick === right;
   $('quiz-list').querySelectorAll('.quiz-opt').forEach(b => {
-    if (b.dataset.ans === right) b.classList.add('correct');
+    if (b.dataset.ans === right) {
+      b.classList.add('correct');
+      b.insertAdjacentHTML('beforeend', CHECK_SVG);
+      if (fresh && Q.answeredPick === right) sprinkleFrom(b);
+    }
     else if (b.dataset.ans === Q.answeredPick) b.classList.add('wrong');
     else b.classList.add('dim');
     b.disabled = true;
@@ -715,6 +904,7 @@ function markQuizAnswered(c) {
 function showQuizResults() {
   const Q = state.quiz;
   const pct = Q.order.length ? Math.round(Q.correct / Q.order.length * 100) : 0;
+  if (!Q.celebrated) { Q.celebrated = true; setTimeout(() => celebrateSet(pct), 140); }
   openModal(`
     <h3>Quiz results</h3>
     <p class="modal-sub">${esc(deck().title)} · ${Q.order.length} questions</p>
@@ -748,7 +938,7 @@ function writeCard() {
   return d ? d.cards.find(c => c.id === state.write.order[state.write.idx]) || null : null;
 }
 
-function renderWrite() {
+function renderWrite(anim) {
   const d = deck(); if (!d) return;
   const W = state.write;
 
@@ -780,7 +970,8 @@ function renderWrite() {
   $('write-check').textContent = 'Check';
   if (W.checked) restoreWriteChecked();  // restore state after re-render
   const ww = $('write-wrap');
-  ww.classList.remove('deal'); void ww.offsetWidth; ww.classList.add('deal');
+  ww.classList.remove('deal'); void ww.offsetWidth;
+  if (anim !== 'slide') ww.classList.add('deal');
   setTimeout(() => { if (!W.checked) input.focus(); }, 30);
 }
 
@@ -810,8 +1001,7 @@ function checkWrite(reveal = false) {
   const W = state.write;
   const c = writeCard(); if (!c) return;
   if (W.checked) {  // second press = advance
-    W.idx++;
-    renderWrite();
+    slideCard($('write-wrap'), 1, () => { W.idx++; renderWrite('slide'); });
     return;
   }
   const expected = backText(c);
@@ -837,7 +1027,9 @@ function checkWrite(reveal = false) {
 
   if (closeEnough) {
     fb.className = 'write-feedback ok';
-    fb.textContent = 'Correct.';
+    fb.innerHTML = CHECK_SVG + ' Correct.';
+    input.classList.remove('ok-flash'); void input.offsetWidth; input.classList.add('ok-flash');
+    sprinkleFrom(input);
     c.status = 'mastered';
     W.correct++;
   } else {
@@ -857,6 +1049,7 @@ function checkWrite(reveal = false) {
 function showWriteResults() {
   const W = state.write;
   const pct = W.order.length ? Math.round(W.correct / W.order.length * 100) : 0;
+  if (!W.celebrated) { W.celebrated = true; setTimeout(() => celebrateSet(pct), 140); }
   openModal(`
     <h3>Writing results</h3>
     <p class="modal-sub">${esc(deck().title)} · ${W.order.length} cards</p>
@@ -1449,24 +1642,35 @@ function wireEvents() {
   $('card-wrap').addEventListener('click', e => {
     if (e.target.closest('.star-corner')) return;
     const wrap = $('card-wrap');
-    state.review.flipped = !state.review.flipped;
-    wrap.classList.toggle('flipped', state.review.flipped);
+    state.review.flipped = !wrap.classList.contains('flipped');
+    flipCardEl(wrap, state.review.flipped);
   });
   $('card-wrap').addEventListener('keydown', e => {
-    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); $('card-wrap').click(); }
+    // stopPropagation — the document-level keydown also flips, so without
+    // this a Space on a focused wrap fires two flips and cancels itself out
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); $('card-wrap').click(); }
   });
   $('star-btn').addEventListener('click', e => {
     e.stopPropagation();
     const c = reviewCard(); if (!c) return;
     c.starred = !c.starred;
     saveStore(); renderReview(); renderLibrary(); renderMeta();
+    // earning a star gets a springy twinkle; removing one stays quiet
+    if (c.starred && !REDUCED_MOTION) {
+      const s2 = $('star-btn').querySelector('svg');
+      if (s2) s2.animate([
+        { transform: 'scale(.55) rotate(-24deg)' },
+        { transform: 'scale(1.25) rotate(8deg)', offset: .6 },
+        { transform: 'scale(1) rotate(0)' },
+      ], { duration: 360, easing: 'cubic-bezier(.34,1.56,.64,1)' });
+    }
   });
   $('flip-pill').addEventListener('click', () => $('card-wrap').click());
   $('prev-btn').addEventListener('click', () => {
-    if (state.review.idx > 0) { state.review.idx--; renderReview('prev'); }
+    if (state.review.idx > 0) slideCard($('card-wrap'), -1, () => { state.review.idx--; renderReview('slide'); });
   });
   $('next-btn').addEventListener('click', () => {
-    if (state.review.idx < state.review.order.length - 1) { state.review.idx++; renderReview('next'); }
+    if (state.review.idx < state.review.order.length - 1) slideCard($('card-wrap'), 1, () => { state.review.idx++; renderReview('slide'); });
   });
   $('shuffle-pill').addEventListener('click', () => {
     const R = state.review;
@@ -1487,27 +1691,31 @@ function wireEvents() {
   $('fs-pill').addEventListener('click', toggleFullscreen);
 
   // learn stage
-  $('learn-wrap').addEventListener('click', () => $('learn-wrap').classList.toggle('flipped'));
+  $('learn-wrap').addEventListener('click', () => flipCardEl($('learn-wrap')));
   $('learn-wrap').addEventListener('keydown', e => {
-    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); $('learn-wrap').classList.toggle('flipped'); }
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); flipCardEl($('learn-wrap')); }
   });
   $('verdict-known').addEventListener('click', () => learnVerdict(true));
   $('verdict-learning').addEventListener('click', () => learnVerdict(false));
 
   // quiz stage
-  $('quiz-next').addEventListener('click', () => { state.quiz.idx++; renderQuiz(); });
+  $('quiz-next').addEventListener('click', () => {
+    slideCard($('quiz-wrap'), 1, () => { state.quiz.idx++; renderQuiz('slide'); });
+  });
 
   // write stage
   $('write-form').addEventListener('submit', e => { e.preventDefault(); checkWrite(false); });
   $('write-reveal').addEventListener('click', () => checkWrite(true));
   $('write-skip').addEventListener('click', () => {
     const W = state.write, c = writeCard();
-    if (c) {
-      if (!W.missed.includes(c.id)) W.missed.push(c.id);
-      c.status = 'learning';
-      saveStore(); renderLibrary(); renderMeta();
-    }
-    W.idx++; renderWrite();
+    slideCard($('write-wrap'), 1, () => {
+      if (c) {
+        if (!W.missed.includes(c.id)) W.missed.push(c.id);
+        c.status = 'learning';
+        saveStore(); renderLibrary(); renderMeta();
+      }
+      W.idx++; renderWrite('slide');
+    });
   });
 
   // editor stage
@@ -1531,6 +1739,9 @@ function wireEvents() {
     $('add-front').focus();
     saveStore(); resetSessions(); renderEditor(); renderLibrary(); renderMeta();
   });
+
+  window.addEventListener('resize', positionTabInk);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(positionTabInk);
 
   // global keys
   document.addEventListener('keydown', e => {
@@ -1563,7 +1774,7 @@ function wireEvents() {
       else if (k === 'r' || k === 'R') { $('sides-pill').click(); }
       else if (k === 'f' || k === 'F') { toggleFullscreen(); }
     } else if (state.mode === 'learn') {
-      if (k === ' ' || k === 'Enter') { e.preventDefault(); $('learn-wrap').classList.toggle('flipped'); }
+      if (k === ' ' || k === 'Enter') { e.preventDefault(); flipCardEl($('learn-wrap')); }
       else if (k === 'k' || k === 'K') learnVerdict(true);
       else if (k === 'l' || k === 'L') learnVerdict(false);
       else if (k === 'f' || k === 'F') toggleFullscreen();

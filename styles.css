@@ -446,6 +446,27 @@ a { color: var(--blue); }
   gap: 0;
   padding: 18px 40px 0;
   border-bottom: 1px solid var(--rule);
+  position: relative;
+}
+
+/* the blue underline is a single bar that slides to whichever tab is active */
+.tab-ink {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 0;
+  height: 2px;
+  background: var(--blue);
+  transition: left .34s cubic-bezier(.22, 1, .36, 1), width .34s cubic-bezier(.22, 1, .36, 1);
+  pointer-events: none;
+}
+.tab-ink::after {   /* little downward notch traveling with the bar */
+  content: '';
+  position: absolute;
+  left: 50%; top: 100%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: var(--blue);
 }
 
 .mode-tab {
@@ -463,15 +484,7 @@ a { color: var(--blue); }
   position: relative;
 }
 .mode-tab:hover { color: var(--ink); }
-.mode-tab.active { color: var(--blue); border-bottom-color: var(--blue); }
-.mode-tab.active::after {
-  content: '';
-  position: absolute;
-  left: 50%; bottom: -7px;
-  transform: translateX(-50%);
-  border: 4px solid transparent;
-  border-top-color: var(--blue);
-}
+.mode-tab.active { color: var(--blue); }
 .mode-tab .count { color: var(--ink-3); margin-left: 4px; }
 
 .stage {
@@ -527,7 +540,6 @@ a { color: var(--blue); }
   min-height: 340px;
   max-height: 520px;
   cursor: pointer;
-  perspective: 1600px;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -535,9 +547,11 @@ a { color: var(--blue); }
   position: relative;
   flex: 1;
   transform-style: preserve-3d;
-  transition: transform .5s cubic-bezier(.3, .8, .3, 1);
+  transition: transform .46s cubic-bezier(.22, .9, .28, 1);
 }
 .card-wrap.flipped .card-inner { transform: rotateY(180deg); }
+/* while a WAAPI flip is in flight the card is 'lifted' — deepen the shadow */
+.card-inner.is-flipping .card-face { box-shadow: var(--shadow-pop); }
 
 .card-face {
   position: absolute;
@@ -551,6 +565,7 @@ a { color: var(--blue); }
   border: 1px solid var(--rule);
   border-top: none;
   box-shadow: var(--shadow-card);
+  transition: box-shadow .45s ease;
   display: flex;
   flex-direction: column;
   padding: 48px 56px 44px;
@@ -729,6 +744,7 @@ a { color: var(--blue); }
   transition: transform .08s, box-shadow .12s;
 }
 .verdict:hover { transform: translateY(-1px); box-shadow: var(--shadow-card); }
+.verdict:active { transform: translateY(1px) scale(.985); box-shadow: none; }
 .verdict.learning { border-color: var(--red); color: var(--red); }
 .verdict.learning:hover { background: var(--red-bg); }
 .verdict.known { border-color: var(--green); color: var(--green); }
@@ -766,10 +782,11 @@ a { color: var(--blue); }
   font-size: 17px;
   line-height: 1.4;
   color: var(--ink);
-  transition: background .1s;
+  transition: background .1s, transform .1s;
 }
 .quiz-opt:first-child { border-top: none; }
 .quiz-opt:hover:not(:disabled) { background: var(--paper-2); }
+.quiz-opt:active:not(:disabled) { transform: scale(.996); }
 .quiz-opt .opt-key {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -1078,7 +1095,9 @@ a { color: var(--blue); }
   justify-content: center;
   padding: 20px;
   z-index: 100;
+  animation: veilIn .22s ease;
 }
+@keyframes veilIn { from { opacity: 0; } }
 [data-theme="dark"] .modal-veil { background: rgba(0,0,0,.6); }
 .modal-veil[hidden] { display: none; }
 
@@ -1091,7 +1110,9 @@ a { color: var(--blue); }
   border: 1px solid var(--ink);
   box-shadow: var(--shadow-pop);
   padding: 22px 24px;
+  animation: modalIn .3s cubic-bezier(.22, 1, .36, 1);
 }
+@keyframes modalIn { from { opacity: 0; transform: translateY(16px) scale(.97); } }
 .modal.wide { max-width: 720px; }
 /* the ink border reads as a deliberate outline in light; in dark it glows — soften to a hairline */
 [data-theme="dark"] .modal, [data-theme="dark"] .menu { border-color: var(--rule); }
@@ -1292,10 +1313,6 @@ a { color: var(--blue); }
   to   { opacity: 1; transform: translateY(0) rotate(0); }
 }
 .card-wrap.deal { animation: cardIn .4s cubic-bezier(.22, 1, .36, 1); }
-@keyframes slideR { from { opacity: 0; transform: translateX(36px); } to { opacity: 1; transform: none; } }
-@keyframes slideL { from { opacity: 0; transform: translateX(-36px); } to { opacity: 1; transform: none; } }
-.card-wrap.from-right { animation: slideR .3s cubic-bezier(.22, 1, .36, 1); }
-.card-wrap.from-left { animation: slideL .3s cubic-bezier(.22, 1, .36, 1); }
 
 /* subtle entry + judgement motion for quiz / write / mode switches */
 .card-stage { animation: stageIn .28s cubic-bezier(.22, 1, .36, 1); }
@@ -1310,6 +1327,49 @@ a { color: var(--blue); }
 
 .write-feedback:not(:empty) { animation: fbIn .25s cubic-bezier(.22, 1, .36, 1); }
 @keyframes fbIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+
+/* a stat count that rose since the last render pops briefly in its color */
+.stat .sv { display: inline-block; }
+.stat .sv.bump { animation: statBump .55s cubic-bezier(.22, 1, .36, 1); }
+@keyframes statBump {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.3); color: var(--bump-c, var(--green)); }
+  100% { transform: scale(1); }
+}
+
+/* the drawn check that lands on a correct answer */
+.opt-check {
+  width: 15px; height: 15px;
+  margin-left: auto;
+  align-self: center;
+  flex-shrink: 0;
+}
+.opt-check path {
+  stroke: var(--green);
+  stroke-width: 2.4;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 16;
+  stroke-dashoffset: 16;
+  animation: checkDraw .35s cubic-bezier(.65, 0, .35, 1) .05s forwards;
+}
+@keyframes checkDraw { to { stroke-dashoffset: 0; } }
+.write-feedback .opt-check {
+  width: 14px; height: 14px;
+  margin: 0 5px 0 0;
+  vertical-align: -2px;
+  display: inline;
+}
+
+/* the write underline flashes green on a correct answer */
+.write-input.ok-flash { animation: okUnderline .7s ease; }
+@keyframes okUnderline {
+  30% { border-bottom-color: var(--green); box-shadow: 0 10px 14px -10px var(--green); }
+}
+
+/* confetti canvas — fixed over everything, inert */
+.confetti-layer { position: fixed; inset: 0; pointer-events: none; z-index: 300; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }

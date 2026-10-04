@@ -221,7 +221,9 @@ function spawnConfetti({ bursts, power = 1, life = 115 }) {
       const kind = Math.random() < .22 ? 'ribbon' : Math.random() < .2 ? 'dot' : 'rect';
       parts.push({
         kind,
-        x: b.x * innerWidth, y: b.y * innerHeight,
+        // spawn just offscreen — an oversized fraction times a very tall
+        // viewport must not land past the cull margin
+        x: b.x * innerWidth, y: Math.min(b.y * innerHeight, innerHeight + 40),
         vx: Math.cos(rad) * v, vy: Math.sin(rad) * v,
         w: kind === 'ribbon' ? 2.6 : 4 + Math.random() * 4.5,
         h: kind === 'ribbon' ? 9 + Math.random() * 6 : 3 + Math.random() * 4,

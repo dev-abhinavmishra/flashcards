@@ -122,7 +122,7 @@ function levenshtein(a, b) {
 /* ---------------- card motion ---------------- */
 
 const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const cardMotion = { busy: false, pending: null };
+const cardMotion = { busy: false, pending: null, gen: 0 };
 
 // Directional card swap: the current card flicks off in the direction of
 // travel (dir 1 = exits right, -1 = exits left) and the next card slides
@@ -132,6 +132,9 @@ function slideCard(wrap, dir, swap) {
   if (REDUCED_MOTION || !wrap) { swap(); return; }
   if (cardMotion.busy) { cardMotion.pending = { wrap, dir, swap }; return; }
   cardMotion.busy = true;
+  // the deck may change while the exit flies — a stale swap must not
+  // reach into the new session's queues
+  const gen = cardMotion.gen;
   const finish = () => {
     cardMotion.busy = false;
     const p = cardMotion.pending; cardMotion.pending = null;
@@ -144,6 +147,7 @@ function slideCard(wrap, dir, swap) {
   ], { duration: 240, easing: 'cubic-bezier(.55,.06,.68,.19)', fill: 'forwards' });
   exit.finished.catch(() => {}).then(() => {
     exit.cancel();
+    if (gen !== cardMotion.gen) { finish(); return; }
     swap();
     const enter = wrap.animate([
       { transform: `translateX(${-dir * 64}%) translateY(-10px) rotate(${-dir * 5}deg)`, opacity: 0 },
@@ -565,6 +569,8 @@ function resetSessions() {
   state.write = { order: shuffleInPlace([...order]), idx: 0, correct: 0, checked: false, missed: [] };
   state.search = '';
   state.statPrev = null;   // strip bumps only compare within this deck
+  cardMotion.gen++;        // any in-flight slide belongs to the old session
+  cardMotion.pending = null;
   const s = $('card-search'); if (s) s.value = '';
 }
 
@@ -882,7 +888,7 @@ function markQuizAnswered(c, fresh) {
     if (b.dataset.ans === right) {
       b.classList.add('correct');
       b.insertAdjacentHTML('beforeend', CHECK_SVG);
-      if (fresh) sprinkleFrom(b);
+      if (fresh && Q.answeredPick === right) sprinkleFrom(b);
     }
     else if (b.dataset.ans === Q.answeredPick) b.classList.add('wrong');
     else b.classList.add('dim');

@@ -191,6 +191,85 @@ function unflipNow(wrap) {
   if (inner) { void inner.offsetWidth; inner.style.transition = ''; }
 }
 
+/* ---------------- confetti ---------------- */
+
+// A small paper-bit burst drawn on a temporary canvas over the page —
+// palette comes from the live theme tokens, so it matches light/dark.
+function spawnConfetti({ x, y, count = 90, power = 1, life = 100 }) {
+  if (REDUCED_MOTION) return;
+  const cv = document.createElement('canvas');
+  cv.className = 'confetti-layer';
+  document.body.appendChild(cv);
+  const ctx = cv.getContext('2d');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = innerWidth * dpr;
+  cv.height = innerHeight * dpr;
+  ctx.scale(dpr, dpr);
+  const css = getComputedStyle(document.documentElement);
+  const palette = ['--blue', '--red', '--yellow', '--green', '--ink-2']
+    .map(k => css.getPropertyValue(k).trim()).filter(Boolean);
+  const ox = x * innerWidth, oy = y * innerHeight;
+  const parts = Array.from({ length: count }, () => {
+    const a = -Math.PI / 2 + (Math.random() - .5) * 2;   // upward cone
+    const v = (4.5 + Math.random() * 7.5) * power;
+    return {
+      x: ox, y: oy,
+      vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+      w: 4 + Math.random() * 5, h: 3 + Math.random() * 4,
+      rot: Math.random() * Math.PI * 2, vr: (Math.random() - .5) * .32,
+      c: palette[(Math.random() * palette.length) | 0] || '#1f47b8',
+      t: 0, ttl: life * (.75 + Math.random() * .5),
+      circle: Math.random() < .22,
+    };
+  });
+  let raf = 0;
+  const step = () => {
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    let alive = false;
+    for (const p of parts) {
+      if (p.t > p.ttl) continue;
+      alive = true;
+      p.t++;
+      p.vy += .16 * power;         // gravity
+      p.vx *= .985; p.vy *= .99;   // air drag
+      p.x += p.vx; p.y += p.vy;
+      p.rot += p.vr;
+      const fade = p.t > p.ttl - 22 ? (p.ttl - p.t) / 22 : 1;
+      ctx.save();
+      ctx.globalAlpha = Math.max(fade, 0);
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.c;
+      if (p.circle) { ctx.beginPath(); ctx.arc(0, 0, p.w / 2.6, 0, Math.PI * 2); ctx.fill(); }
+      else ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    }
+    if (alive) raf = requestAnimationFrame(step);
+    else cv.remove();
+  };
+  raf = requestAnimationFrame(step);
+  setTimeout(() => { cancelAnimationFrame(raf); cv.remove(); }, 4500);  // safety for hidden tabs
+}
+
+// Finishing a set earns a real burst; a perfect score earns a second one.
+function celebrateSet(pct) {
+  spawnConfetti({ x: .5, y: .34, count: pct === 100 ? 120 : 90 });
+  if (pct === 100) setTimeout(() => spawnConfetti({ x: .5, y: .4, count: 60, power: .8 }), 320);
+}
+
+// A small sprinkle from an element — the correct-answer moment.
+function sprinkleFrom(el) {
+  if (!el || REDUCED_MOTION) return;
+  const r = el.getBoundingClientRect();
+  spawnConfetti({
+    x: (r.left + r.width / 2) / innerWidth,
+    y: (r.top + r.height / 2) / innerHeight,
+    count: 12, power: .42, life: 46,
+  });
+}
+
+const CHECK_SVG = `<svg class="opt-check" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.6l3.1 3L13 4.6"/></svg>`;
+
 /* ---------------- dom ---------------- */
 
 const $ = id => document.getElementById(id);
@@ -521,6 +600,7 @@ function renderAll() {
 
   document.querySelectorAll('.mode-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.mode === state.mode));
+  positionTabInk();
 
   for (const m of ['review', 'learn', 'quiz', 'write', 'cards'])
     $(`stage-${m}`).hidden = state.mode !== m;
@@ -534,11 +614,31 @@ function renderAll() {
 
 function statStripHTML(d) {
   const s = deckStats(d);
+  const prev = state.statPrev || {};
+  state.statPrev = { mastered: s.mastered, learning: s.learning, starred: s.starred };
+  // a number that just rose pops briefly in its own color
+  const bump = (k, c) => (prev[k] !== undefined && s[k] > prev[k]
+    ? ` bump" style="--bump-c:var(--${c})` : '');
   return `
     <div class="stat"><div class="sv">${s.total}</div><div class="sl">cards</div></div>
-    <div class="stat"><div class="sv"><span class="hl">${s.mastered}</span></div><div class="sl">mastered</div></div>
-    <div class="stat"><div class="sv">${s.learning}</div><div class="sl">learning</div></div>
-    <div class="stat starred"><div class="sv">${s.starred}</div><div class="sl">starred</div></div>`;
+    <div class="stat"><div class="sv${bump('mastered', 'green')}"><span class="hl">${s.mastered}</span></div><div class="sl">mastered</div></div>
+    <div class="stat"><div class="sv${bump('learning', 'red')}">${s.learning}</div><div class="sl">learning</div></div>
+    <div class="stat starred"><div class="sv${bump('starred', 'yellow')}">${s.starred}</div><div class="sl">starred</div></div>`;
+}
+
+let inkPlaced = false;
+function positionTabInk() {
+  const ink = $('tab-ink');
+  const tab = document.querySelector('.mode-tab.active');
+  if (!ink || !tab) return;
+  // first placement is instant — only later moves should visibly slide.
+  // while the tab row is hidden (welcome screen) width is 0 — don't count that.
+  const placed = inkPlaced && tab.offsetWidth > 0;
+  if (!placed) ink.style.transition = 'none';
+  ink.style.left = `${tab.offsetLeft}px`;
+  ink.style.width = `${tab.offsetWidth}px`;
+  if (!placed) { void ink.offsetWidth; ink.style.transition = ''; }
+  if (tab.offsetWidth > 0) inkPlaced = true;
 }
 
 function frontText(c) { return deck().flipped ? c.a : c.q; }
@@ -678,6 +778,8 @@ function learnVerdict(known) {
 
 function showLearnResults() {
   const L = state.learn;
+  const pct = L.total ? Math.round(L.known / L.total * 100) : 100;
+  setTimeout(() => celebrateSet(pct), 140);
   const masteredNow = L.known;
   const stillNeed = deck().cards.filter(c => L.missed.includes(c.id) && c.status !== 'mastered').length;
   openModal(`
@@ -768,15 +870,19 @@ function answerQuiz(btn) {
   if (ok) { Q.correct++; c.status = 'mastered'; }
   else { c.status = 'learning'; Q.missed.push(c.id); }
   saveStore();
-  markQuizAnswered(c);
+  markQuizAnswered(c, true);
 }
 
-function markQuizAnswered(c) {
+function markQuizAnswered(c, fresh) {
   const Q = state.quiz;
   const right = backText(c);
   const ok = Q.answeredPick === right;
   $('quiz-list').querySelectorAll('.quiz-opt').forEach(b => {
-    if (b.dataset.ans === right) b.classList.add('correct');
+    if (b.dataset.ans === right) {
+      b.classList.add('correct');
+      b.insertAdjacentHTML('beforeend', CHECK_SVG);
+      if (fresh) sprinkleFrom(b);
+    }
     else if (b.dataset.ans === Q.answeredPick) b.classList.add('wrong');
     else b.classList.add('dim');
     b.disabled = true;
@@ -791,6 +897,7 @@ function markQuizAnswered(c) {
 function showQuizResults() {
   const Q = state.quiz;
   const pct = Q.order.length ? Math.round(Q.correct / Q.order.length * 100) : 0;
+  setTimeout(() => celebrateSet(pct), 140);
   openModal(`
     <h3>Quiz results</h3>
     <p class="modal-sub">${esc(deck().title)} · ${Q.order.length} questions</p>
@@ -913,7 +1020,9 @@ function checkWrite(reveal = false) {
 
   if (closeEnough) {
     fb.className = 'write-feedback ok';
-    fb.textContent = 'Correct.';
+    fb.innerHTML = CHECK_SVG + ' Correct.';
+    input.classList.remove('ok-flash'); void input.offsetWidth; input.classList.add('ok-flash');
+    sprinkleFrom(input);
     c.status = 'mastered';
     W.correct++;
   } else {
@@ -933,6 +1042,7 @@ function checkWrite(reveal = false) {
 function showWriteResults() {
   const W = state.write;
   const pct = W.order.length ? Math.round(W.correct / W.order.length * 100) : 0;
+  setTimeout(() => celebrateSet(pct), 140);
   openModal(`
     <h3>Writing results</h3>
     <p class="modal-sub">${esc(deck().title)} · ${W.order.length} cards</p>
@@ -1538,6 +1648,15 @@ function wireEvents() {
     const c = reviewCard(); if (!c) return;
     c.starred = !c.starred;
     saveStore(); renderReview(); renderLibrary(); renderMeta();
+    // earning a star gets a springy twinkle; removing one stays quiet
+    if (c.starred && !REDUCED_MOTION) {
+      const s2 = $('star-btn').querySelector('svg');
+      if (s2) s2.animate([
+        { transform: 'scale(.55) rotate(-24deg)' },
+        { transform: 'scale(1.25) rotate(8deg)', offset: .6 },
+        { transform: 'scale(1) rotate(0)' },
+      ], { duration: 360, easing: 'cubic-bezier(.34,1.56,.64,1)' });
+    }
   });
   $('flip-pill').addEventListener('click', () => $('card-wrap').click());
   $('prev-btn').addEventListener('click', () => {
@@ -1613,6 +1732,9 @@ function wireEvents() {
     $('add-front').focus();
     saveStore(); resetSessions(); renderEditor(); renderLibrary(); renderMeta();
   });
+
+  window.addEventListener('resize', positionTabInk);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(positionTabInk);
 
   // global keys
   document.addEventListener('keydown', e => {

@@ -564,6 +564,7 @@ function resetSessions() {
   state.quiz = { order: shuffleInPlace([...order]), idx: 0, correct: 0, answered: false, missed: [] };
   state.write = { order: shuffleInPlace([...order]), idx: 0, correct: 0, checked: false, missed: [] };
   state.search = '';
+  state.statPrev = null;   // strip bumps only compare within this deck
   const s = $('card-search'); if (s) s.value = '';
 }
 

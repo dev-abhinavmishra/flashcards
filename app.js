@@ -1529,7 +1529,9 @@ function wireEvents() {
     flipCardEl(wrap, state.review.flipped);
   });
   $('card-wrap').addEventListener('keydown', e => {
-    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); $('card-wrap').click(); }
+    // stopPropagation — the document-level keydown also flips, so without
+    // this a Space on a focused wrap fires two flips and cancels itself out
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); $('card-wrap').click(); }
   });
   $('star-btn').addEventListener('click', e => {
     e.stopPropagation();
@@ -1565,7 +1567,7 @@ function wireEvents() {
   // learn stage
   $('learn-wrap').addEventListener('click', () => flipCardEl($('learn-wrap')));
   $('learn-wrap').addEventListener('keydown', e => {
-    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flipCardEl($('learn-wrap')); }
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); flipCardEl($('learn-wrap')); }
   });
   $('verdict-known').addEventListener('click', () => learnVerdict(true));
   $('verdict-learning').addEventListener('click', () => learnVerdict(false));

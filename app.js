@@ -197,9 +197,10 @@ function unflipNow(wrap) {
 
 /* ---------------- confetti ---------------- */
 
-// A small paper-bit burst drawn on a temporary canvas over the page —
-// palette comes from the live theme tokens, so it matches light/dark.
-function spawnConfetti({ x, y, count = 90, power = 1, life = 100 }) {
+// Paper bits erupting from launchers along the bottom edge — staggered
+// volleys, launch flashes, fluttering ribbons and punched-paper dots.
+// Colors come from the live theme tokens, so it matches light/dark.
+function spawnConfetti({ bursts, power = 1, life = 115 }) {
   if (REDUCED_MOTION) return;
   const cv = document.createElement('canvas');
   cv.className = 'confetti-layer';
@@ -210,65 +211,105 @@ function spawnConfetti({ x, y, count = 90, power = 1, life = 100 }) {
   cv.height = innerHeight * dpr;
   ctx.scale(dpr, dpr);
   const css = getComputedStyle(document.documentElement);
-  const palette = ['--blue', '--red', '--yellow', '--green', '--ink-2']
+  const palette = ['--blue', '--red', '--yellow', '--green', '--card']
     .map(k => css.getPropertyValue(k).trim()).filter(Boolean);
-  const ox = x * innerWidth, oy = y * innerHeight;
-  const parts = Array.from({ length: count }, () => {
-    const a = -Math.PI / 2 + (Math.random() - .5) * 2;   // upward cone
-    const v = (4.5 + Math.random() * 7.5) * power;
-    return {
-      x: ox, y: oy,
-      vx: Math.cos(a) * v, vy: Math.sin(a) * v,
-      w: 4 + Math.random() * 5, h: 3 + Math.random() * 4,
-      rot: Math.random() * Math.PI * 2, vr: (Math.random() - .5) * .32,
-      c: palette[(Math.random() * palette.length) | 0] || '#1f47b8',
-      t: 0, ttl: life * (.75 + Math.random() * .5),
-      circle: Math.random() < .22,
-    };
-  });
-  let raf = 0;
+  const parts = [];
+  const emit = b => {
+    for (let i = 0; i < b.count; i++) {
+      const rad = (b.angle + (Math.random() - .5) * b.spread) * Math.PI / 180;
+      const v = (11 + Math.random() * 7.5) * power;
+      const kind = Math.random() < .22 ? 'ribbon' : Math.random() < .2 ? 'dot' : 'rect';
+      parts.push({
+        kind,
+        x: b.x * innerWidth, y: b.y * innerHeight,
+        vx: Math.cos(rad) * v, vy: Math.sin(rad) * v,
+        w: kind === 'ribbon' ? 2.6 : 4 + Math.random() * 4.5,
+        h: kind === 'ribbon' ? 9 + Math.random() * 6 : 3 + Math.random() * 4,
+        r: 1.6 + Math.random() * 1.6,
+        rot: Math.random() * Math.PI * 2, vr: (Math.random() - .5) * .3,
+        sa: .3 + Math.random() * .9,      // flutter amplitude
+        sf: .06 + Math.random() * .08,    // flutter frequency
+        sp: Math.random() * Math.PI * 2,  // flutter phase
+        g: kind === 'ribbon' ? .1 : .15,  // ribbons drift down lighter
+        c: palette[(Math.random() * palette.length) | 0] || '#1f47b8',
+        t: 0, ttl: life * (.7 + Math.random() * .6),
+      });
+    }
+    // a soft ring where the launcher fires
+    parts.push({ kind: 'flash', x: b.x * innerWidth, y: Math.min(b.y, 1) * innerHeight, t: 0, ttl: 12 });
+  };
+  let frame = 0, raf = 0;
+  const lastAt = Math.max(...bursts.map(b => b.at));
   const step = () => {
+    for (const b of bursts) if (b.at === frame) emit(b);
+    frame++;
     ctx.clearRect(0, 0, innerWidth, innerHeight);
     let alive = false;
     for (const p of parts) {
       if (p.t > p.ttl) continue;
       alive = true;
       p.t++;
-      p.vy += .16 * power;         // gravity
-      p.vx *= .985; p.vy *= .99;   // air drag
-      p.x += p.vx; p.y += p.vy;
+      if (p.kind === 'flash') {
+        const r = 6 + p.t * 5, a = .4 * (1 - p.t / p.ttl);
+        ctx.save();
+        ctx.globalAlpha = Math.max(a, 0);
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+        ctx.restore();
+        continue;
+      }
+      p.vy += p.g;
+      p.vx *= .985; p.vy *= .992;              // air drag
+      p.x += p.vx + Math.sin(p.t * p.sf + p.sp) * p.sa;
+      p.y += p.vy;
       p.rot += p.vr;
-      const fade = p.t > p.ttl - 22 ? (p.ttl - p.t) / 22 : 1;
+      if (p.y > innerHeight + 60) { p.t = p.ttl; continue; }
+      const fade = p.t > p.ttl - 24 ? (p.ttl - p.t) / 24 : 1;
       ctx.save();
       ctx.globalAlpha = Math.max(fade, 0);
       ctx.translate(p.x, p.y);
       ctx.rotate(p.rot);
       ctx.fillStyle = p.c;
-      if (p.circle) { ctx.beginPath(); ctx.arc(0, 0, p.w / 2.6, 0, Math.PI * 2); ctx.fill(); }
+      if (p.kind === 'dot') { ctx.beginPath(); ctx.arc(0, 0, p.r, 0, Math.PI * 2); ctx.fill(); }
       else ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
       ctx.restore();
     }
-    if (alive) raf = requestAnimationFrame(step);
+    if (alive || frame <= lastAt) raf = requestAnimationFrame(step);
     else cv.remove();
   };
   raf = requestAnimationFrame(step);
-  setTimeout(() => { cancelAnimationFrame(raf); cv.remove(); }, 4500);  // safety for hidden tabs
+  setTimeout(() => { cancelAnimationFrame(raf); cv.remove(); }, 6000);  // safety for hidden tabs
 }
 
-// Finishing a set earns a real burst; a perfect score earns a second one.
+// Finishing a set: corner launchers cross-fire over the results card,
+// then a center volley. A perfect score earns a second round.
 function celebrateSet(pct) {
-  spawnConfetti({ x: .5, y: .34, count: pct === 100 ? 120 : 90 });
-  if (pct === 100) setTimeout(() => spawnConfetti({ x: .5, y: .4, count: 60, power: .8 }), 320);
+  const strong = pct === 100;
+  const bursts = [
+    { at: 0,  x: .16, y: 1.03, angle: -64,  spread: 22, count: strong ? 64 : 52 },
+    { at: 0,  x: .84, y: 1.03, angle: -116, spread: 22, count: strong ? 64 : 52 },
+    { at: 18, x: .34, y: 1.03, angle: -76,  spread: 16, count: 30 },
+    { at: 18, x: .66, y: 1.03, angle: -104, spread: 16, count: 30 },
+    { at: 40, x: .5,  y: 1.03, angle: -90,  spread: 28, count: strong ? 48 : 30 },
+  ];
+  if (strong) bursts.push(
+    { at: 58, x: .16, y: 1.03, angle: -64,  spread: 20, count: 28 },
+    { at: 58, x: .84, y: 1.03, angle: -116, spread: 20, count: 28 });
+  spawnConfetti({ bursts });
 }
 
-// A small sprinkle from an element — the correct-answer moment.
+// A small puff off an element — the correct-answer moment.
 function sprinkleFrom(el) {
   if (!el || REDUCED_MOTION) return;
   const r = el.getBoundingClientRect();
   spawnConfetti({
-    x: (r.left + r.width / 2) / innerWidth,
-    y: (r.top + r.height / 2) / innerHeight,
-    count: 12, power: .42, life: 46,
+    power: .34, life: 52,
+    bursts: [{
+      at: 0,
+      x: (r.left + r.width / 2) / innerWidth,
+      y: (r.top + r.height / 2) / innerHeight,
+      angle: -90, spread: 110, count: 12,
+    }],
   });
 }
 

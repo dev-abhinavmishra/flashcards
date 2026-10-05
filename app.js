@@ -12,6 +12,7 @@
 const STORE_KEY = 'cardfile.decks.v1';
 const LAST_KEY = 'cardfile.lastDeck';
 const THEME_KEY = 'cardfile.theme';
+const MOTION_KEY = 'cardfile.motion';
 
 const URL_SAFE_LIMIT = 8000;
 const URL_HARD_LIMIT = 30000;
@@ -121,7 +122,30 @@ function levenshtein(a, b) {
 
 /* ---------------- card motion ---------------- */
 
-const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+// motion preference: 'auto' follows the OS reduced-motion flag, 'on' forces
+// all animation, 'off' suppresses it — picked from the header toggle.
+const osReduceMQ = matchMedia('(prefers-reduced-motion: reduce)');
+let motionPref = (() => { try { return localStorage.getItem(MOTION_KEY) || 'auto'; } catch { return 'auto'; } })();
+function motionReduced() {
+  if (motionPref === 'on') return false;
+  if (motionPref === 'off') return true;
+  return osReduceMQ.matches;
+}
+function applyMotionPref(pref) {
+  motionPref = pref;
+  try { localStorage.setItem(MOTION_KEY, pref); } catch {}
+  if (pref === 'auto') document.documentElement.removeAttribute('data-motion');
+  else document.documentElement.setAttribute('data-motion', pref);
+  const btn = $('motion-btn');
+  if (btn) {
+    btn.dataset.state = pref;
+    const label = pref === 'auto'
+      ? `Motion: follows system (${osReduceMQ.matches ? 'reduced' : 'on'})`
+      : pref === 'on' ? 'Motion: always on' : 'Motion: reduced';
+    btn.title = label + ' — click to change';
+    btn.setAttribute('aria-label', label);
+  }
+}
 const cardMotion = { busy: false, pending: null, gen: 0 };
 
 // Directional card swap: the current card flicks off in the direction of
@@ -129,7 +153,7 @@ const cardMotion = { busy: false, pending: null, gen: 0 };
 // in from the opposite side. swap() runs while the card is off-screen.
 // Rapid presses queue the latest intent instead of piling up.
 function slideCard(wrap, dir, swap) {
-  if (REDUCED_MOTION || !wrap) { swap(); return; }
+  if (motionReduced() || !wrap) { swap(); return; }
   if (cardMotion.busy) { cardMotion.pending = { wrap, dir, swap }; return; }
   cardMotion.busy = true;
   // the deck may change while the exit flies — a stale swap must not
@@ -168,7 +192,7 @@ function flipCardEl(wrap, on) {
   const to = on === undefined ? !was : !!on;
   if (was === to) return;
   wrap.classList.toggle('flipped', to);
-  if (REDUCED_MOTION || !inner) return;
+  if (motionReduced() || !inner) return;
   const from = was ? 180 : 0, deg = to ? 180 : 0;
   inner.style.transition = 'none';
   inner.getAnimations().forEach(a => a.cancel());
@@ -201,7 +225,7 @@ function unflipNow(wrap) {
 // volleys, launch flashes, fluttering ribbons and punched-paper dots.
 // Colors come from the live theme tokens, so it matches light/dark.
 function spawnConfetti({ bursts, power = 1, life = 115 }) {
-  if (REDUCED_MOTION) return;
+  if (motionReduced()) return;
   const cv = document.createElement('canvas');
   cv.className = 'confetti-layer';
   document.body.appendChild(cv);
@@ -302,7 +326,7 @@ function celebrateSet(pct) {
 
 // A small puff off an element — the correct-answer moment.
 function sprinkleFrom(el) {
-  if (!el || REDUCED_MOTION) return;
+  if (!el || motionReduced()) return;
   const r = el.getBoundingClientRect();
   spawnConfetti({
     power: .34, life: 52,
@@ -1653,6 +1677,9 @@ function wireEvents() {
     applyTheme(document.documentElement.dataset.theme !== 'dark');
   });
   $('shortcuts-btn').addEventListener('click', openShortcuts);
+  $('motion-btn').addEventListener('click', () => {
+    applyMotionPref(motionPref === 'auto' ? 'on' : motionPref === 'on' ? 'off' : 'auto');
+  });
 
   // sidebar / empty
   $('new-deck-btn').addEventListener('click', openImportModal);
@@ -1699,7 +1726,7 @@ function wireEvents() {
     c.starred = !c.starred;
     saveStore(); renderReview(); renderLibrary(); renderMeta();
     // earning a star gets a springy twinkle; removing one stays quiet
-    if (c.starred && !REDUCED_MOTION) {
+    if (c.starred && !motionReduced()) {
       const s2 = $('star-btn').querySelector('svg');
       if (s2) s2.animate([
         { transform: 'scale(.55) rotate(-24deg)' },
@@ -1845,6 +1872,8 @@ function boot() {
   const stored = (() => { try { return localStorage.getItem(THEME_KEY) || localStorage.getItem('theme'); } catch { return null; } })();
   const prefersDark = matchMedia('(prefers-color-scheme: dark)').matches;
   applyTheme(stored ? stored === 'dark' : prefersDark);
+  applyMotionPref(motionPref);
+  if (osReduceMQ.addEventListener) osReduceMQ.addEventListener('change', () => applyMotionPref(motionPref));
 
   // migrate: old single-file app stored decks as 'flashcard_deck_*'.
   // Each key is migrated once — deleting the imported deck must not resurrect it.

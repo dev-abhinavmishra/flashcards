@@ -64,15 +64,21 @@ function createDeck(title, cards) {
 /* ---------------- text helpers ---------------- */
 
 // Diacritic shorthand kept from the original tool: a vowel followed by
-// ^ or _ becomes a macron vowel, ` becomes a breve. Applied on input only.
+// ^, _, or ` becomes a macron vowel; ´ becomes acute; a combining breve
+// becomes a breve vowel. Every input is fully transformed — the old guard
+// that skipped strings already containing macrons left literal shorthand
+// behind on mixed cards.
 const MACRON = { a: 'ā', e: 'ē', i: 'ī', o: 'ō', u: 'ū', A: 'Ā', E: 'Ē', I: 'Ī', O: 'Ō', U: 'Ū' };
 const BREVE = { a: 'ă', e: 'ĕ', i: 'ĭ', o: 'ŏ', u: 'ŭ', A: 'Ă', E: 'Ĕ', I: 'Ĭ', O: 'Ŏ', U: 'Ŭ' };
+const ACUTE = { a: 'á', e: 'é', i: 'í', o: 'ó', u: 'ú', A: 'Á', E: 'É', I: 'Í', O: 'Ó', U: 'Ú' };
 
 function diacritics(text) {
-  if (!text || /[āēīōūăĕĭŏŭĀĒĪŌŪĂĔĬŎŬ]/.test(text)) return text || '';
+  if (!text) return text || '';
   return text
-    .replace(/([aeiouAEIOU])[\^_`´]/g, (m, v) => MACRON[v] || m)
-    .replace(/([aeiouAEIOU])̆/g, (m, v) => BREVE[v] || m);
+    .replace(/([aeiouAEIOU])[\^_`]/g, (m, v) => MACRON[v] || m)
+    .replace(/([aeiouAEIOU])´/g, (m, v) => ACUTE[v] || m)
+    .replace(/([aeiouAEIOU])̆/g, (m, v) => BREVE[v] || m)
+    .normalize('NFC');
 }
 
 const esc = s => String(s ?? '')
@@ -1861,6 +1867,18 @@ function boot() {
     } catch {}
   }
   try { localStorage.setItem('cardfile.migratedKeys', JSON.stringify([...migrated])); } catch {}
+
+  // one-time cleanup: decks saved while the diacritics guard skipped
+  // mixed strings can hold literal ^ _ ` ´ shorthand — re-run the
+  // transform over every stored card (idempotent).
+  let retouched = false;
+  for (const d of Object.values(state.decks)) {
+    for (const c of d.cards) {
+      const nq = diacritics(c.q), na = diacritics(c.a), nx = diacritics(c.ex);
+      if (nq !== c.q || na !== c.a || nx !== c.ex) { c.q = nq; c.a = na; c.ex = nx; retouched = true; }
+    }
+  }
+  if (retouched) saveStore();
 
   function importSharedDeckSilent(title, raw) {
     const clean = raw.filter(c => c.q && c.a);

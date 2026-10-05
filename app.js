@@ -455,13 +455,16 @@ function deckFingerprint(title, cards) {
 
 /** Import a shared-link deck into the library (deduped), select it. */
 function importSharedDeck(title, rawCards) {
-  rawCards = rawCards.filter(c => c && c.q && c.a);
+  rawCards = rawCards.filter(c => c && c.q && c.a)
+    .map(c => ({ q: diacritics(c.q), a: diacritics(c.a), ex: diacritics(c.ex) }));
   if (!rawCards.length) { toast('That link had no usable cards in it.'); return; }
+  // fingerprint on the converted text so a link carrying shorthand
+  // still dedupes against the repaired stored deck
   const fp = deckFingerprint(title, rawCards);
   const existing = Object.values(state.decks).find(d =>
     deckFingerprint(d.title, d.cards.map(c => ({ q: c.q, a: c.a }))) === fp);
   if (existing) { selectDeck(existing.id); toast('Deck already in your library'); return; }
-  const d = createDeck(title, rawCards.map(c => newCard(diacritics(c.q), diacritics(c.a), diacritics(c.ex))));
+  const d = createDeck(title, rawCards.map(c => newCard(c.q, c.a, c.ex)));
   saveStore();
   selectDeck(d.id);
   toast(`Imported “${d.title}” — ${d.cards.length} cards`);
@@ -1486,7 +1489,7 @@ function importLibrary(obj) {
   for (const row of rows) {
     if (!row || !Array.isArray(row.cards)) { skipped++; continue; }
     const cards = row.cards.map(c => ({
-      q: c.q || '', a: c.a || '', ex: c.ex || c.note || '',
+      q: diacritics(c.q || ''), a: diacritics(c.a || ''), ex: diacritics(c.ex || c.note || ''),
       starred: !!c.starred, status: c.status,
     })).filter(c => c.q && c.a);
     if (!cards.length) { skipped++; continue; }
@@ -1899,22 +1902,30 @@ function boot() {
 
   // one-time cleanup: decks saved while the diacritics guard skipped
   // mixed strings can hold literal ^ _ ` ´ shorthand — re-run the
-  // transform over every stored card (idempotent).
-  let retouched = false;
-  for (const d of Object.values(state.decks)) {
-    for (const c of d.cards) {
-      const nq = diacritics(c.q), na = diacritics(c.a), nx = diacritics(c.ex);
-      if (nq !== c.q || na !== c.a || nx !== c.ex) { c.q = nq; c.a = na; c.ex = nx; retouched = true; }
+  // transform once over every stored card, then mark it done so cards
+  // written later (which may legitimately contain a_b or e^2) are
+  // never rewritten.
+  let diacriticsCleaned = false;
+  try { diacriticsCleaned = localStorage.getItem('cardfile.diacriticsCleaned') === '1'; } catch {}
+  if (!diacriticsCleaned) {
+    let retouched = false;
+    for (const d of Object.values(state.decks)) {
+      for (const c of d.cards) {
+        const nq = diacritics(c.q), na = diacritics(c.a), nx = diacritics(c.ex);
+        if (nq !== c.q || na !== c.a || nx !== c.ex) { c.q = nq; c.a = na; c.ex = nx; retouched = true; }
+      }
     }
+    if (retouched) saveStore();
+    try { localStorage.setItem('cardfile.diacriticsCleaned', '1'); } catch {}
   }
-  if (retouched) saveStore();
 
   function importSharedDeckSilent(title, raw) {
-    const clean = raw.filter(c => c.q && c.a);
+    const clean = raw.filter(c => c.q && c.a)
+      .map(c => ({ q: diacritics(c.q), a: diacritics(c.a), ex: diacritics(c.ex || '') }));
     if (!clean.length) return;
     const fp = deckFingerprint(title, clean);
     if (Object.values(state.decks).some(d => deckFingerprint(d.title, d.cards.map(c => ({ q: c.q, a: c.a }))) === fp)) return;
-    const d = createDeck(title, clean.map(c => newCard(diacritics(c.q), diacritics(c.a), diacritics(c.ex || ''))));
+    const d = createDeck(title, clean.map(c => newCard(c.q, c.a, c.ex)));
     saveStore();
   }
 

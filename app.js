@@ -749,47 +749,34 @@ function renderReview(anim) {
   const wrap = $('card-wrap');
   const order = state.review.order;
   const n = order.length;
+  // A held arrow key queues slides whose swaps mutate idx after the
+  // click-time bound check — clamp before rendering so an overshoot
+  // can never show a phantom or empty state mid-deck.
+  state.review.idx = Math.min(Math.max(0, state.review.idx), Math.max(0, n - 1));
   const c = reviewCard();
   const s = deckStats(d);
   $('rev-mastered').textContent = `${s.mastered} mastered`;
 
-  // idx === n is the Done card: past the last real card, it isn't
-  // counted in the N/N counter but completes the run so a deck can
-  // actually finish instead of freezing on its last card.
-  if (state.review.idx >= n && n > 0) {
-    $('rev-count').textContent = `${n} / ${n}`;
-    $('rev-progress').style.width = '100%';
-    $('card-corner').textContent = 'DONE';
-    $('card-corner-b').textContent = 'DONE';
-    $('front-label').textContent = 'Deck complete';
-    $('back-label').textContent = 'Session';
-    $('card-front-text').textContent = 'Done.';
-    $('card-back-def').textContent = `${n} card${n === 1 ? '' : 's'} reviewed`;
-    $('card-back-ex').textContent = `${s.mastered} mastered`;
-    $('back-hint').textContent = '← back to the last card';
-    $('star-btn').style.visibility = 'hidden';
-    $('prev-btn').disabled = false;
-    $('next-btn').disabled = true;
-    $('shuffle-pill').classList.toggle('on', state.review.shuffled);
-    $('sides-pill').classList.toggle('on', d.flipped);
-    if (state.review.flipped) { unflipNow(wrap); state.review.flipped = false; }
-    wrap.classList.remove('deal');
-    void wrap.offsetWidth;
-    if (anim !== 'slide') wrap.classList.add('deal');
-    $('review-stats').innerHTML = statStripHTML(d);
-    return;
-  }
-
+  const emptyEl = $('review-empty');
   if (!c) {
     $('rev-count').textContent = `0 / ${n}`;
-    $('card-front-text').textContent = state.starredOnly && d.cards.length ? 'No starred cards' : 'No cards to show';
-    $('card-back-def').textContent = emptyStudySet(state.starredOnly && d.cards.length ? 'No starred cards' : '');
-    $('card-back-ex').textContent = '';
     $('rev-progress').style.width = '0%';
+    wrap.style.display = 'none';
+    emptyEl.hidden = false;
+    emptyEl.textContent = state.starredOnly && d.cards.length
+      ? `No starred cards — ${emptyStudySet('No starred cards')}`
+      : `No cards to show — ${emptyStudySet('')}`;
+    $('star-btn').style.visibility = 'hidden';
+    $('prev-btn').disabled = true;
+    $('next-btn').disabled = true;
+    $('flip-pill').disabled = true;
     $('review-stats').innerHTML = statStripHTML(d);
     return;
   }
 
+  wrap.style.display = '';
+  emptyEl.hidden = true;
+  $('flip-pill').disabled = false;
   $('star-btn').style.visibility = '';
   $('rev-count').textContent = `${state.review.idx + 1} / ${n}`;
   $('rev-progress').style.width = `${((state.review.idx + 1) / n * 100)}%`;
@@ -807,7 +794,7 @@ function renderReview(anim) {
   $('star-btn').innerHTML = `<svg viewBox="0 0 24 24" fill="${c.starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.7-6.2 3.7 1.6-7L2 9.2l7.1-.6z"/></svg>`;
 
   $('prev-btn').disabled = state.review.idx === 0;
-  $('next-btn').disabled = state.review.idx >= n;
+  $('next-btn').disabled = state.review.idx >= n - 1;
   $('shuffle-pill').classList.toggle('on', state.review.shuffled);
   $('sides-pill').classList.toggle('on', d.flipped);
 
@@ -832,26 +819,48 @@ function renderLearn(anim) {
   const L = state.learn;
   const wrap = $('learn-wrap');
 
+  const learnEmptyEl = $('learn-empty');
   if (L.total === 0) {
     $('learn-count').textContent = '';
     $('learn-progress').style.width = '0%';
     $('learn-round').textContent = '';
-    $('learn-corner').textContent = 'LEARN';
-    $('learn-corner-b').textContent = 'LEARN';
-    $('learn-front').textContent = state.starredOnly && d.cards.length ? 'No starred cards' : 'Nothing to study';
-    $('learn-back').textContent = emptyStudySet(state.starredOnly && d.cards.length ? 'No starred cards' : '');
-    $('learn-ex').textContent = '';
-    unflipNow(wrap);
+    wrap.style.display = 'none';
+    learnEmptyEl.hidden = false;
+    learnEmptyEl.textContent = state.starredOnly && d.cards.length
+      ? `No starred cards — ${emptyStudySet('No starred cards')}`
+      : `Nothing to study — ${emptyStudySet('')}`;
+    $('verdict-learning').parentElement.style.visibility = 'hidden';
     $('learn-stats').innerHTML = statStripHTML(d);
     return;
   }
+  wrap.style.display = '';
+  learnEmptyEl.hidden = true;
 
   if (L.queue.length === 0) {  // session complete
     if (!L.done) { L.done = true; showLearnResults(); }
+    // terminal state — without it the stage freezes on the last card
+    // with a stale "1 left" and verdict buttons that do nothing
+    const stillNeed = d.cards.filter(c => L.missed.includes(c.id) && c.status !== 'mastered').length;
+    $('learn-count').textContent = `${L.known} / ${L.total} learned`;
+    $('learn-progress').style.width = '100%';
+    $('learn-round').textContent = '0 left';
+    $('learn-corner').textContent = 'DONE';
+    $('learn-corner-b').textContent = 'DONE';
+    $('learn-front-label').textContent = 'Session complete';
+    $('learn-back-label').textContent = 'Session';
+    $('learn-front').textContent = 'Done.';
+    $('learn-back').textContent = stillNeed ? `${stillNeed} still learning` : 'all learned';
+    $('learn-ex').textContent = `${L.passes} pass${L.passes === 1 ? '' : 'es'}`;
+    unflipNow(wrap);
+    $('verdict-learning').parentElement.style.visibility = 'hidden';
+    $('learn-stats').innerHTML = statStripHTML(d);
     return;
   }
   L.done = false;
   const c = learnCard();
+  $('learn-front-label').textContent = 'Recall the answer';
+  $('learn-back-label').textContent = 'Answer';
+  $('verdict-learning').parentElement.style.visibility = '';
   $('learn-count').textContent = `${L.known} / ${L.total} learned`;
   $('learn-progress').style.width = `${(L.total ? L.known / L.total * 100 : 0)}%`;
   $('learn-round').textContent = `${L.queue.length} left`;
@@ -925,19 +934,37 @@ function renderQuiz(anim) {
   const d = deck(); if (!d) return;
   const Q = state.quiz;
 
+  const quizEmptyEl = $('quiz-empty');
   if (!Q.order.length) {
     $('quiz-count').textContent = '';
     $('quiz-progress').style.width = '0%';
     $('quiz-score').textContent = '';
-    $('quiz-corner').textContent = 'QUIZ';
-    $('quiz-front').textContent = state.starredOnly && d.cards.length ? 'No starred cards' : 'Nothing to quiz';
-    $('quiz-list').innerHTML = `<div class="quiz-opt" style="cursor:default"><span class="opt-key">·</span><span>${esc(emptyStudySet(state.starredOnly && d.cards.length ? 'No starred cards' : ''))}</span></div>`;
+    $('quiz-wrap').style.display = 'none';
+    quizEmptyEl.hidden = false;
+    quizEmptyEl.textContent = state.starredOnly && d.cards.length
+      ? `No starred cards — ${emptyStudySet('No starred cards')}`
+      : `Nothing to quiz — ${emptyStudySet('')}`;
+    $('quiz-list').innerHTML = '';
     $('quiz-msg').textContent = '';
     $('quiz-next').hidden = true;
     return;
   }
+  $('quiz-wrap').style.display = '';
+  quizEmptyEl.hidden = true;
 
-  if (Q.idx >= Q.order.length) { showQuizResults(); return; }
+  if (Q.idx >= Q.order.length) {  // session complete — terminal state
+    if (!Q.done) { Q.done = true; showQuizResults(); }
+    $('quiz-count').textContent = `${Q.order.length} / ${Q.order.length}`;
+    $('quiz-progress').style.width = '100%';
+    $('quiz-score').textContent = `${Q.correct} correct`;
+    $('quiz-corner').textContent = 'DONE';
+    $('quiz-front-label').textContent = 'Session complete';
+    $('quiz-front').textContent = 'Done.';
+    $('quiz-list').innerHTML = `<div class="quiz-opt" style="cursor:default"><span class="opt-key">·</span><span>${Q.correct} of ${Q.order.length} correct</span></div>`;
+    $('quiz-msg').textContent = '';
+    $('quiz-next').hidden = true;
+    return;
+  }
   const c = quizCard(); if (!c) return;
 
   Q.answered = Q.answeredId === c.id;
@@ -945,6 +972,7 @@ function renderQuiz(anim) {
   $('quiz-progress').style.width = `${((Q.idx + 1) / Q.order.length * 100)}%`;
   $('quiz-score').textContent = `${Q.correct} correct`;
   $('quiz-corner').textContent = `Q${String(Q.idx + 1).padStart(2, '0')}`;
+  $('quiz-front-label').textContent = 'Which answer matches?';
   $('quiz-front').textContent = frontText(c);
   $('quiz-msg').textContent = 'Pick one — number keys 1–4 work too.';
   $('quiz-next').hidden = true;
@@ -1047,18 +1075,44 @@ function renderWrite(anim) {
   const d = deck(); if (!d) return;
   const W = state.write;
 
+  const writeEmptyEl = $('write-empty');
   if (!W.order.length) {
     $('write-count').textContent = '';
     $('write-progress').style.width = '0%';
     $('write-score').textContent = '';
-    $('write-corner').textContent = 'WRITE';
-    $('write-front').textContent = state.starredOnly && d.cards.length ? 'No starred cards' : 'Nothing to write';
-    $('write-feedback').textContent = emptyStudySet(state.starredOnly && d.cards.length ? 'No starred cards' : '');
-    $('write-input').disabled = true;
+    $('write-wrap').style.display = 'none';
+    writeEmptyEl.hidden = false;
+    writeEmptyEl.textContent = state.starredOnly && d.cards.length
+      ? `No starred cards — ${emptyStudySet('No starred cards')}`
+      : `Nothing to write — ${emptyStudySet('')}`;
+    $('write-form').style.visibility = 'hidden';
+    $('write-feedback').textContent = '';
+    $('write-skip').parentElement.style.visibility = 'hidden';
     return;
   }
+  $('write-wrap').style.display = '';
+  writeEmptyEl.hidden = true;
+  $('write-form').style.visibility = '';
 
-  if (W.idx >= W.order.length) { showWriteResults(); return; }
+  if (W.idx >= W.order.length) {  // session complete — terminal state
+    if (!W.done) { W.done = true; showWriteResults(); }
+    $('write-count').textContent = `${W.order.length} / ${W.order.length}`;
+    $('write-progress').style.width = '100%';
+    $('write-score').textContent = `${W.correct} right`;
+    $('write-corner').textContent = 'DONE';
+    $('write-front-label').textContent = 'Session complete';
+    $('write-front').textContent = 'Done.';
+    const doneInput = $('write-input');
+    doneInput.value = ''; doneInput.disabled = true; doneInput.placeholder = 'session complete';
+    $('write-check').textContent = 'Done'; $('write-check').disabled = true;
+    $('write-feedback').className = 'write-feedback';
+    $('write-feedback').textContent = `${W.correct} of ${W.order.length} right`;
+    $('write-skip').parentElement.style.visibility = 'hidden';
+    return;
+  }
+  $('write-check').disabled = false;
+  $('write-input').placeholder = 'type the answer…';
+  $('write-skip').parentElement.style.visibility = '';
   const c = writeCard(); if (!c) return;
 
   W.checked = W.checkedId === c.id;
@@ -1066,6 +1120,7 @@ function renderWrite(anim) {
   $('write-progress').style.width = `${((W.idx + 1) / W.order.length * 100)}%`;
   $('write-score').textContent = `${W.correct} right`;
   $('write-corner').textContent = `W${String(W.idx + 1).padStart(2, '0')}`;
+  $('write-front-label').textContent = 'Write the answer';
   $('write-front').textContent = frontText(c);
   $('write-feedback').textContent = '';
   $('write-feedback').className = 'write-feedback';
@@ -1778,7 +1833,7 @@ function wireEvents() {
     if (state.review.idx > 0) slideCard($('card-wrap'), -1, () => { state.review.idx--; renderReview('slide'); });
   });
   $('next-btn').addEventListener('click', () => {
-    if (state.review.idx < state.review.order.length) slideCard($('card-wrap'), 1, () => { state.review.idx++; renderReview('slide'); });
+    if (state.review.idx < state.review.order.length - 1) slideCard($('card-wrap'), 1, () => { state.review.idx++; renderReview('slide'); });
   });
   $('shuffle-pill').addEventListener('click', () => {
     const R = state.review;

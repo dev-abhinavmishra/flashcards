@@ -848,10 +848,29 @@ function renderLearn(anim) {
 
   if (L.queue.length === 0) {  // session complete
     if (!L.done) { L.done = true; showLearnResults(); }
+    // terminal state — without it the stage freezes on the last card
+    // with a stale "1 left" and verdict buttons that do nothing
+    const stillNeed = d.cards.filter(c => L.missed.includes(c.id) && c.status !== 'mastered').length;
+    $('learn-count').textContent = `${L.known} / ${L.total} learned`;
+    $('learn-progress').style.width = '100%';
+    $('learn-round').textContent = '0 left';
+    $('learn-corner').textContent = 'DONE';
+    $('learn-corner-b').textContent = 'DONE';
+    $('learn-front-label').textContent = 'Session complete';
+    $('learn-back-label').textContent = 'Session';
+    $('learn-front').textContent = 'Done.';
+    $('learn-back').textContent = stillNeed ? `${stillNeed} still learning` : 'all learned';
+    $('learn-ex').textContent = `${L.passes} pass${L.passes === 1 ? '' : 'es'}`;
+    unflipNow(wrap);
+    $('verdict-learning').parentElement.style.visibility = 'hidden';
+    $('learn-stats').innerHTML = statStripHTML(d);
     return;
   }
   L.done = false;
   const c = learnCard();
+  $('learn-front-label').textContent = 'Recall the answer';
+  $('learn-back-label').textContent = 'Answer';
+  $('verdict-learning').parentElement.style.visibility = '';
   $('learn-count').textContent = `${L.known} / ${L.total} learned`;
   $('learn-progress').style.width = `${(L.total ? L.known / L.total * 100 : 0)}%`;
   $('learn-round').textContent = `${L.queue.length} left`;
@@ -937,7 +956,19 @@ function renderQuiz(anim) {
     return;
   }
 
-  if (Q.idx >= Q.order.length) { showQuizResults(); return; }
+  if (Q.idx >= Q.order.length) {  // session complete — terminal state
+    if (!Q.done) { Q.done = true; showQuizResults(); }
+    $('quiz-count').textContent = `${Q.order.length} / ${Q.order.length}`;
+    $('quiz-progress').style.width = '100%';
+    $('quiz-score').textContent = `${Q.correct} correct`;
+    $('quiz-corner').textContent = 'DONE';
+    $('quiz-front-label').textContent = 'Session complete';
+    $('quiz-front').textContent = 'Done.';
+    $('quiz-list').innerHTML = `<div class="quiz-opt" style="cursor:default"><span class="opt-key">·</span><span>${Q.correct} of ${Q.order.length} correct</span></div>`;
+    $('quiz-msg').textContent = '';
+    $('quiz-next').hidden = true;
+    return;
+  }
   const c = quizCard(); if (!c) return;
 
   Q.answered = Q.answeredId === c.id;
@@ -945,6 +976,7 @@ function renderQuiz(anim) {
   $('quiz-progress').style.width = `${((Q.idx + 1) / Q.order.length * 100)}%`;
   $('quiz-score').textContent = `${Q.correct} correct`;
   $('quiz-corner').textContent = `Q${String(Q.idx + 1).padStart(2, '0')}`;
+  $('quiz-front-label').textContent = 'Which answer matches?';
   $('quiz-front').textContent = frontText(c);
   $('quiz-msg').textContent = 'Pick one — number keys 1–4 work too.';
   $('quiz-next').hidden = true;
@@ -1058,7 +1090,25 @@ function renderWrite(anim) {
     return;
   }
 
-  if (W.idx >= W.order.length) { showWriteResults(); return; }
+  if (W.idx >= W.order.length) {  // session complete — terminal state
+    if (!W.done) { W.done = true; showWriteResults(); }
+    $('write-count').textContent = `${W.order.length} / ${W.order.length}`;
+    $('write-progress').style.width = '100%';
+    $('write-score').textContent = `${W.correct} right`;
+    $('write-corner').textContent = 'DONE';
+    $('write-front-label').textContent = 'Session complete';
+    $('write-front').textContent = 'Done.';
+    const doneInput = $('write-input');
+    doneInput.value = ''; doneInput.disabled = true; doneInput.placeholder = 'session complete';
+    $('write-check').textContent = 'Done'; $('write-check').disabled = true;
+    $('write-feedback').className = 'write-feedback';
+    $('write-feedback').textContent = `${W.correct} of ${W.order.length} right`;
+    $('write-skip').parentElement.style.visibility = 'hidden';
+    return;
+  }
+  $('write-check').disabled = false;
+  $('write-input').placeholder = 'type the answer…';
+  $('write-skip').parentElement.style.visibility = '';
   const c = writeCard(); if (!c) return;
 
   W.checked = W.checkedId === c.id;
@@ -1066,6 +1116,7 @@ function renderWrite(anim) {
   $('write-progress').style.width = `${((W.idx + 1) / W.order.length * 100)}%`;
   $('write-score').textContent = `${W.correct} right`;
   $('write-corner').textContent = `W${String(W.idx + 1).padStart(2, '0')}`;
+  $('write-front-label').textContent = 'Write the answer';
   $('write-front').textContent = frontText(c);
   $('write-feedback').textContent = '';
   $('write-feedback').className = 'write-feedback';

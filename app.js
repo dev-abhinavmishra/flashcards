@@ -747,9 +747,41 @@ function renderReview(anim) {
   if (!d) return;
 
   const wrap = $('card-wrap');
+  const order = state.review.order;
+  const n = order.length;
   const c = reviewCard();
+  const s = deckStats(d);
+  $('rev-mastered').textContent = `${s.mastered} mastered`;
+
+  // idx === n is the Done card: past the last real card, it isn't
+  // counted in the N/N counter but completes the run so a deck can
+  // actually finish instead of freezing on its last card.
+  if (state.review.idx >= n && n > 0) {
+    $('rev-count').textContent = `${n} / ${n}`;
+    $('rev-progress').style.width = '100%';
+    $('card-corner').textContent = 'DONE';
+    $('card-corner-b').textContent = 'DONE';
+    $('front-label').textContent = 'Deck complete';
+    $('back-label').textContent = 'Session';
+    $('card-front-text').textContent = 'Done.';
+    $('card-back-def').textContent = `${n} card${n === 1 ? '' : 's'} reviewed`;
+    $('card-back-ex').textContent = `${s.mastered} mastered`;
+    $('back-hint').textContent = '← back to the last card';
+    $('star-btn').style.visibility = 'hidden';
+    $('prev-btn').disabled = false;
+    $('next-btn').disabled = true;
+    $('shuffle-pill').classList.toggle('on', state.review.shuffled);
+    $('sides-pill').classList.toggle('on', d.flipped);
+    if (state.review.flipped) { unflipNow(wrap); state.review.flipped = false; }
+    wrap.classList.remove('deal');
+    void wrap.offsetWidth;
+    if (anim !== 'slide') wrap.classList.add('deal');
+    $('review-stats').innerHTML = statStripHTML(d);
+    return;
+  }
+
   if (!c) {
-    $('rev-count').textContent = `0 / ${state.review.order.length}`;
+    $('rev-count').textContent = `0 / ${n}`;
     $('card-front-text').textContent = state.starredOnly && d.cards.length ? 'No starred cards' : 'No cards to show';
     $('card-back-def').textContent = emptyStudySet(state.starredOnly && d.cards.length ? 'No starred cards' : '');
     $('card-back-ex').textContent = '';
@@ -758,17 +790,14 @@ function renderReview(anim) {
     return;
   }
 
-  const order = state.review.order;
-  const n = order.length;
+  $('star-btn').style.visibility = '';
   $('rev-count').textContent = `${state.review.idx + 1} / ${n}`;
   $('rev-progress').style.width = `${((state.review.idx + 1) / n * 100)}%`;
-  const s = deckStats(d);
-  $('rev-mastered').textContent = `${s.mastered} mastered`;
-
   const corner = `${String(state.review.idx + 1).padStart(2, '0')}`;
   $('card-corner').textContent = corner;
   $('card-corner-b').textContent = corner;
   $('front-label').textContent = d.flipped ? 'Answer first — recall the term' : 'Term';
+  $('back-label').textContent = 'Answer';
   $('card-front-text').textContent = frontText(c);
   $('card-back-def').textContent = backText(c);
   $('card-back-ex').textContent = c.ex || '';
@@ -778,7 +807,7 @@ function renderReview(anim) {
   $('star-btn').innerHTML = `<svg viewBox="0 0 24 24" fill="${c.starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.7-6.2 3.7 1.6-7L2 9.2l7.1-.6z"/></svg>`;
 
   $('prev-btn').disabled = state.review.idx === 0;
-  $('next-btn').disabled = state.review.idx >= n - 1;
+  $('next-btn').disabled = state.review.idx >= n;
   $('shuffle-pill').classList.toggle('on', state.review.shuffled);
   $('sides-pill').classList.toggle('on', d.flipped);
 
@@ -913,7 +942,7 @@ function renderQuiz(anim) {
 
   Q.answered = Q.answeredId === c.id;
   $('quiz-count').textContent = `${Q.idx + 1} / ${Q.order.length}`;
-  $('quiz-progress').style.width = `${(Q.idx / Q.order.length * 100)}%`;
+  $('quiz-progress').style.width = `${((Q.idx + 1) / Q.order.length * 100)}%`;
   $('quiz-score').textContent = `${Q.correct} correct`;
   $('quiz-corner').textContent = `Q${String(Q.idx + 1).padStart(2, '0')}`;
   $('quiz-front').textContent = frontText(c);
@@ -1034,7 +1063,7 @@ function renderWrite(anim) {
 
   W.checked = W.checkedId === c.id;
   $('write-count').textContent = `${W.idx + 1} / ${W.order.length}`;
-  $('write-progress').style.width = `${(W.idx / W.order.length * 100)}%`;
+  $('write-progress').style.width = `${((W.idx + 1) / W.order.length * 100)}%`;
   $('write-score').textContent = `${W.correct} right`;
   $('write-corner').textContent = `W${String(W.idx + 1).padStart(2, '0')}`;
   $('write-front').textContent = frontText(c);
@@ -1749,7 +1778,7 @@ function wireEvents() {
     if (state.review.idx > 0) slideCard($('card-wrap'), -1, () => { state.review.idx--; renderReview('slide'); });
   });
   $('next-btn').addEventListener('click', () => {
-    if (state.review.idx < state.review.order.length - 1) slideCard($('card-wrap'), 1, () => { state.review.idx++; renderReview('slide'); });
+    if (state.review.idx < state.review.order.length) slideCard($('card-wrap'), 1, () => { state.review.idx++; renderReview('slide'); });
   });
   $('shuffle-pill').addEventListener('click', () => {
     const R = state.review;

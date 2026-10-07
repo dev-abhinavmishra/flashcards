@@ -845,6 +845,20 @@ a { color: var(--blue); }
 .write-feedback.no { color: var(--red); }
 .write-feedback .expected { color: var(--ink-2); }
 
+/* ---------- stage empty state (plain line, not a card) ---------- */
+
+.stage-empty {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  letter-spacing: .3px;
+  color: var(--ink-3);
+  padding: 36px 16px;
+  margin: 0;
+  width: 100%;
+  max-width: 720px;
+}
+
 /* ---------- stat strip ---------- */
 
 .stat-strip {

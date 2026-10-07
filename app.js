@@ -1794,6 +1794,9 @@ function wireEvents() {
   });
   $('sides-pill').addEventListener('click', () => {
     deck().flipped = !deck().flipped;
+    const R = state.review;
+    // on the Done card there's no position to preserve — restart the run
+    if (R.idx >= R.order.length) R.idx = 0;
     saveStore(); renderReview(); renderMeta();
   });
   $('fs-pill').addEventListener('click', toggleFullscreen);
